@@ -95,6 +95,7 @@ class WorldClockApp:
         # Bind events
         self.canvas.bind('<Button-1>', self.start_drag)
         self.canvas.bind('<B1-Motion>', self.do_drag)
+        self.canvas.bind('<ButtonRelease-1>', self.stop_drag)
         self.root.bind('<Double-Button-1>', self.toggle_layout)
         
         # Create Right-Click Menu
@@ -277,6 +278,12 @@ class WorldClockApp:
     def start_drag(self, event):
         self.drag_start_x = event.x
         self.drag_start_y = event.y
+        # Visual feedback: set to 30% opacity during drag
+        self.root.attributes('-alpha', 0.3)
+
+    def stop_drag(self, event):
+        # Restore user configured opacity
+        self.apply_transparency()
 
     def do_drag(self, event):
         x = self.root.winfo_x() + (event.x - self.drag_start_x)
