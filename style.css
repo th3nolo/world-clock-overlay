@@ -1,0 +1,641 @@
+/* ==========================================================================
+   Design System & Variable Declarations
+   ========================================================================== */
+:root {
+  /* Default: Dark Glass */
+  --bg-gradient: linear-gradient(135deg, rgba(20, 20, 25, 0.7), rgba(30, 30, 35, 0.4));
+  --border-color: rgba(255, 255, 255, 0.12);
+  --text-main: #ffffff;
+  --text-muted: rgba(255, 255, 255, 0.6);
+  --accent-color: #3a86ff;
+  --accent-glow: rgba(58, 134, 255, 0.4);
+  --shadow-color: rgba(0, 0, 0, 0.4);
+  --blur-val: 14px;
+  --glass-opacity: 0.65;
+  --size-scale: 1.0;
+  
+  /* Font Family */
+  --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Theme: Light Glass */
+#clock-widget.glass-light {
+  --bg-gradient: linear-gradient(135deg, rgba(255, 255, 255, 0.7), rgba(240, 240, 245, 0.45));
+  --border-color: rgba(0, 0, 0, 0.09);
+  --text-main: #1c1c1e;
+  --text-muted: rgba(28, 28, 30, 0.6);
+  --accent-color: #007aff;
+  --accent-glow: rgba(0, 122, 255, 0.25);
+  --shadow-color: rgba(0, 0, 0, 0.1);
+}
+
+/* Theme: Cyberpunk Neon */
+#clock-widget.cyberpunk {
+  --bg-gradient: linear-gradient(135deg, rgba(10, 8, 16, 0.85), rgba(18, 0, 30, 0.75));
+  --border-color: #ff007f;
+  --text-main: #ffffff;
+  --text-muted: #8b9bb4;
+  --accent-color: #00ffff;
+  --accent-glow: rgba(0, 255, 255, 0.6);
+  --shadow-color: rgba(255, 0, 127, 0.3);
+  --blur-val: 8px;
+}
+
+/* Theme: Nordic Frost */
+#clock-widget.nordic {
+  --bg-gradient: linear-gradient(135deg, rgba(46, 52, 64, 0.8), rgba(59, 66, 82, 0.55));
+  --border-color: rgba(136, 192, 208, 0.35);
+  --text-main: #d8dee9;
+  --text-muted: #9fa8b8;
+  --accent-color: #88c0d0;
+  --accent-glow: rgba(136, 192, 208, 0.3);
+  --shadow-color: rgba(0, 0, 0, 0.3);
+}
+
+/* ==========================================================================
+   Global Reset & Base Style
+   ========================================================================== */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: transparent;
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+#widget-container {
+  padding: 5px;
+  background: transparent;
+  display: inline-block;
+}
+
+/* ==========================================================================
+   Clock Widget Main Window
+   ========================================================================== */
+#clock-widget {
+  display: flex;
+  position: relative;
+  background: var(--bg-gradient);
+  backdrop-filter: blur(var(--blur-val));
+  -webkit-backdrop-filter: blur(var(--blur-val));
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px 0 var(--shadow-color);
+  transition: opacity 0.25s ease, background 0.3s ease, border-color 0.3s ease, transform 0.1s ease;
+  transform-origin: top left;
+  transform: scale(var(--size-scale));
+  opacity: 1; /* Target opacity is set on parent via JavaScript stylesheet inline opacity values */
+}
+
+/* Layout Orientations */
+#clock-widget.horizontal {
+  flex-direction: row;
+  align-items: center;
+  padding: 8px 12px;
+  gap: 12px;
+}
+
+#clock-widget.vertical {
+  flex-direction: column;
+  align-items: stretch;
+  padding: 12px 8px;
+  gap: 8px;
+}
+
+/* ==========================================================================
+   Drag Handle
+   ========================================================================== */
+.drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  color: var(--text-muted);
+  opacity: 0.3;
+  transition: opacity 0.2s ease, color 0.2s ease;
+  -webkit-app-region: drag; /* Crucial for Electron window dragging */
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+#clock-widget:hover .drag-handle {
+  opacity: 0.8;
+}
+
+.drag-handle svg {
+  fill: currentColor;
+}
+
+.horizontal .drag-handle {
+  width: 12px;
+  height: 60px;
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  padding-right: 8px;
+  margin-right: -4px;
+}
+
+.vertical .drag-handle {
+  height: 12px;
+  width: 100%;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding-bottom: 8px;
+  margin-bottom: -2px;
+}
+
+/* ==========================================================================
+   Clocks Layout & Cards
+   ========================================================================== */
+.clocks-container {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+}
+
+.horizontal .clocks-container {
+  flex-direction: row;
+}
+
+.vertical .clocks-container {
+  flex-direction: column;
+}
+
+.clock-card {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  min-width: 105px;
+  transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+#clock-widget.glass-light .clock-card {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.02);
+}
+
+.clock-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.08);
+  transform: translateY(-1px);
+}
+
+#clock-widget.glass-light .clock-card:hover {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.05);
+}
+
+/* Clock Card Details */
+.clock-header {
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  gap: 4px;
+  margin-bottom: 2px;
+}
+
+.timezone-flag {
+  font-size: 12px;
+}
+
+.timezone-label {
+  white-space: nowrap;
+}
+
+.timezone-offset {
+  font-size: 9px;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 1px 3px;
+  border-radius: 4px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+
+#clock-widget.glass-light .timezone-offset {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+/* Clock Numbers styling */
+.clock-time {
+  display: flex;
+  align-items: baseline;
+  margin-top: 1px;
+}
+
+.time-display {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-main);
+  letter-spacing: -0.3px;
+  font-variant-numeric: tabular-nums; /* Prevents text shifting */
+  text-shadow: 0 0 10px var(--accent-glow);
+}
+
+#clock-widget.cyberpunk .time-display {
+  color: var(--accent-color);
+  text-shadow: 0 0 8px var(--accent-glow);
+}
+
+.time-period {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--accent-color);
+  margin-left: 3px;
+  text-transform: uppercase;
+}
+
+.clock-date {
+  font-size: 9.5px;
+  color: var(--text-muted);
+  font-weight: 400;
+  margin-top: 2px;
+  text-transform: capitalize;
+}
+
+/* ==========================================================================
+   Action Buttons Panel
+   ========================================================================== */
+.action-panel {
+  display: flex;
+  gap: 4px;
+  z-index: 10;
+}
+
+.horizontal .action-panel {
+  flex-direction: column;
+  border-left: 1px solid rgba(255, 255, 255, 0.05);
+  padding-left: 8px;
+}
+
+.vertical .action-panel {
+  flex-direction: row;
+  justify-content: center;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding-top: 8px;
+  margin-top: 2px;
+}
+
+.action-btn {
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.action-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-main);
+}
+
+#clock-widget.glass-light .action-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.action-btn svg {
+  fill: currentColor;
+  transition: transform 0.25s ease;
+}
+
+#btn-settings:hover svg {
+  transform: rotate(45deg);
+}
+
+.close-btn:hover {
+  background: #ff453a !important;
+  color: white !important;
+}
+
+/* Hide Electron elements in web-browser context */
+.electron-only {
+  display: none !important;
+}
+
+/* If app has electronAPI loaded, we show them via JS class */
+body.is-electron .electron-only {
+  display: flex !important;
+}
+
+body.is-electron #btn-pip {
+  display: none !important; /* Hide Picture-in-Picture in native desktop window */
+}
+
+/* ==========================================================================
+   Settings Drawer Panel
+   ========================================================================== */
+.settings-panel {
+  display: none; /* Controlled by active class in JS */
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--bg-gradient);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 12px;
+  z-index: 100;
+  padding: 10px 14px;
+  flex-direction: column;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.settings-panel.active {
+  display: flex;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+
+#clock-widget.glass-light .settings-header {
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+.settings-header h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.settings-close-btn {
+  background: transparent;
+  border: none;
+  font-size: 18px;
+  color: var(--text-muted);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.settings-close-btn:hover {
+  color: var(--text-main);
+}
+
+.settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  flex: 1;
+  padding-right: 2px;
+}
+
+/* Custom Scrollbar for Settings Drawer */
+.settings-body::-webkit-scrollbar {
+  width: 4px;
+}
+.settings-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.settings-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+}
+
+.setting-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11.5px;
+  color: var(--text-main);
+}
+
+.setting-row.flex-column {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.setting-row label {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* Custom Dropdown Styles */
+select {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-main);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-family: var(--font-sans);
+  outline: none;
+  cursor: pointer;
+}
+
+#clock-widget.glass-light select {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+select option {
+  background: #1c1c1e;
+  color: white;
+}
+
+#clock-widget.glass-light select option {
+  background: #ffffff;
+  color: #1c1c1e;
+}
+
+/* Custom Switch Styles */
+.switch-container {
+  position: relative;
+  display: inline-block;
+  width: 28px;
+  height: 16px;
+}
+
+.switch-container input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switch-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.15);
+  transition: .2s;
+  border-radius: 16px;
+}
+
+#clock-widget.glass-light .switch-slider {
+  background-color: rgba(0, 0, 0, 0.1);
+}
+
+.switch-slider:before {
+  position: absolute;
+  content: "";
+  height: 12px;
+  width: 12px;
+  left: 2px;
+  bottom: 2px;
+  background-color: var(--text-main);
+  transition: .2s;
+  border-radius: 50%;
+}
+
+input:checked + .switch-slider {
+  background-color: var(--accent-color);
+}
+
+input:checked + .switch-slider:before {
+  transform: translateX(12px);
+}
+
+/* Custom Range Slider Styles */
+.slider-header {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 2px;
+}
+
+.slider-header span {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--accent-color);
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.12);
+  outline: none;
+}
+
+#clock-widget.glass-light input[type="range"] {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent-color);
+  cursor: pointer;
+  box-shadow: 0 0 6px var(--accent-glow);
+}
+
+/* Theme Selector Grid */
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  width: 100%;
+  margin-top: 2px;
+}
+
+.theme-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 9px;
+  font-family: var(--font-sans);
+  transition: all 0.2s ease;
+}
+
+#clock-widget.glass-light .theme-btn {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.05);
+}
+
+.theme-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-main);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+#clock-widget.glass-light .theme-btn:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.theme-btn.active {
+  border-color: var(--accent-color);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-main);
+}
+
+#clock-widget.glass-light .theme-btn.active {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.color-preview {
+  width: 100%;
+  height: 12px;
+  border-radius: 3px;
+}
+
+/* Information & Tooltips */
+.help-tooltip {
+  cursor: help;
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: 2px;
+}
+
+.shortcut-info {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 9px;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
+#clock-widget.glass-light .shortcut-info {
+  border-color: rgba(0, 0, 0, 0.04);
+}
+
+.shortcut-info ul {
+  padding-left: 12px;
+  margin-top: 2px;
+}

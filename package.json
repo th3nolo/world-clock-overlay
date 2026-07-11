@@ -1,0 +1,22 @@
+{
+  "name": "world-clock-overlay",
+  "version": "1.0.0",
+  "description": "A sleek, translucent, draggable, always-on-top world clock overlay for Venezuela, KSA, and Spain.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron ."
+  },
+  "keywords": [
+    "clock",
+    "overlay",
+    "translucent",
+    "electron",
+    "worldtime"
+  ],
+  "author": "Antigravity Pair Programmer",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^31.0.0"
+  }
+}

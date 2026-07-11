@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>World Clock Overlay</title>
+  <!-- Google Fonts for premium typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="widget-container">
+    <!-- Clock Widget -->
+    <div id="clock-widget" class="horizontal interactive">
+      <!-- Drag Handle for Moving Window -->
+      <div id="drag-handle" class="drag-handle interactive" title="Drag to move window">
+        <svg viewBox="0 0 24 24" width="16" height="16">
+          <circle cx="8" cy="6" r="1.5" />
+          <circle cx="8" cy="12" r="1.5" />
+          <circle cx="8" cy="18" r="1.5" />
+          <circle cx="16" cy="6" r="1.5" />
+          <circle cx="16" cy="12" r="1.5" />
+          <circle cx="16" cy="18" r="1.5" />
+        </svg>
+      </div>
+
+      <!-- Clocks Area -->
+      <div class="clocks-container">
+        <!-- Venezuela Clock -->
+        <div class="clock-card interactive" id="clock-venezuela">
+          <div class="clock-header">
+            <span class="timezone-flag">🇻🇪</span>
+            <span class="timezone-label">Venezuela</span>
+            <span class="timezone-offset" id="offset-venezuela">...</span>
+          </div>
+          <div class="clock-time">
+            <span class="time-display" id="time-venezuela">00:00:00</span>
+            <span class="time-period" id="period-venezuela"></span>
+          </div>
+          <div class="clock-date" id="date-venezuela">...</div>
+        </div>
+
+        <!-- Saudi Arabia Clock -->
+        <div class="clock-card interactive" id="clock-ksa">
+          <div class="clock-header">
+            <span class="timezone-flag">🇸🇦</span>
+            <span class="timezone-label">Saudi Arabia</span>
+            <span class="timezone-offset" id="offset-ksa">...</span>
+          </div>
+          <div class="clock-time">
+            <span class="time-display" id="time-ksa">00:00:00</span>
+            <span class="time-period" id="period-ksa"></span>
+          </div>
+          <div class="clock-date" id="date-ksa">...</div>
+        </div>
+
+        <!-- Spain Clock -->
+        <div class="clock-card interactive" id="clock-spain">
+          <div class="clock-header">
+            <span class="timezone-flag">🇪🇸</span>
+            <span class="timezone-label">Spain</span>
+            <span class="timezone-offset" id="offset-spain">...</span>
+          </div>
+          <div class="clock-time">
+            <span class="time-display" id="time-spain">00:00:00</span>
+            <span class="time-period" id="period-spain"></span>
+          </div>
+          <div class="clock-date" id="date-spain">...</div>
+        </div>
+      </div>
+
+      <!-- Action Panel (Quick options: Settings, PiP, Minimize, Close) -->
+      <div class="action-panel">
+        <button id="btn-settings" class="action-btn interactive" title="Settings">
+          <svg viewBox="0 0 24 24" width="16" height="16">
+            <path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/>
+          </svg>
+        </button>
+        <!-- Picture in Picture Button (Visible only in Web Browser mode) -->
+        <button id="btn-pip" class="action-btn interactive" title="Float Clock (Always on Top)">
+          <svg viewBox="0 0 24 24" width="16" height="16">
+            <path d="M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z"/>
+          </svg>
+        </button>
+        <!-- Electron Window Control Buttons (Visible only in Electron mode) -->
+        <button id="btn-minimize" class="action-btn electron-only interactive" title="Minimize">
+          <svg viewBox="0 0 24 24" width="16" height="16">
+            <rect x="4" y="11" width="16" height="2" />
+          </svg>
+        </button>
+        <button id="btn-close" class="action-btn electron-only interactive close-btn" title="Close">
+          <svg viewBox="0 0 24 24" width="16" height="16">
+            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Settings Panel -->
+      <div id="settings-panel" class="settings-panel interactive">
+        <div class="settings-header">
+          <h3>Clock Settings</h3>
+          <button id="btn-settings-close" class="settings-close-btn">×</button>
+        </div>
+        <div class="settings-body">
+          <!-- Time Format -->
+          <div class="setting-row">
+            <label for="select-format">Time Format</label>
+            <select id="select-format">
+              <option value="12h">12-Hour (AM/PM)</option>
+              <option value="24h">24-Hour</option>
+            </select>
+          </div>
+
+          <!-- Seconds Display -->
+          <div class="setting-row">
+            <label for="toggle-seconds">Show Seconds</label>
+            <div class="switch-container">
+              <input type="checkbox" id="toggle-seconds" checked>
+              <span class="switch-slider"></span>
+            </div>
+          </div>
+
+          <!-- Layout Orientation -->
+          <div class="setting-row">
+            <label for="select-layout">Layout</label>
+            <select id="select-layout">
+              <option value="horizontal">Horizontal (Strip)</option>
+              <option value="vertical">Vertical (Dock)</option>
+            </select>
+          </div>
+
+          <!-- Opacity Slider -->
+          <div class="setting-row">
+            <div class="slider-header">
+              <label for="slider-opacity">Glass Opacity</label>
+              <span id="val-opacity">65%</span>
+            </div>
+            <input type="range" id="slider-opacity" min="15" max="100" value="65">
+          </div>
+
+          <!-- Size Scaling Slider -->
+          <div class="setting-row">
+            <div class="slider-header">
+              <label for="slider-scale">Size Scale</label>
+              <span id="val-scale">1.0x</span>
+            </div>
+            <input type="range" id="slider-scale" min="70" max="150" value="100" step="5">
+          </div>
+
+          <!-- Color Themes -->
+          <div class="setting-row flex-column">
+            <label>Design Theme</label>
+            <div class="theme-grid">
+              <button class="theme-btn active" data-theme="glass-dark" title="Frosted Dark Glass">
+                <span class="color-preview" style="background: linear-gradient(135deg, rgba(20,20,20,0.8), rgba(40,40,40,0.5)); border: 1px solid rgba(255,255,255,0.15)"></span>
+                <span>Dark</span>
+              </button>
+              <button class="theme-btn" data-theme="glass-light" title="Frosted Light Glass">
+                <span class="color-preview" style="background: linear-gradient(135deg, rgba(255,255,255,0.7), rgba(240,240,240,0.4)); border: 1px solid rgba(0,0,0,0.1)"></span>
+                <span>Light</span>
+              </button>
+              <button class="theme-btn" data-theme="cyberpunk" title="Neon Cyberpunk">
+                <span class="color-preview" style="background: linear-gradient(135deg, #09090e, #130022); border: 1px solid #ff007f"></span>
+                <span>Neon</span>
+              </button>
+              <button class="theme-btn" data-theme="nordic" title="Nordic Frost">
+                <span class="color-preview" style="background: linear-gradient(135deg, #1e222a, #2e3440); border: 1px solid #88c0d0"></span>
+                <span>Nordic</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Click-Through Mode (Electron only) -->
+          <div class="setting-row electron-only">
+            <label for="toggle-click-through">
+              Click-Through
+              <span class="help-tooltip" title="When enabled, you can click on apps underneath the transparent spaces. Interactive elements (clocks, controls) remain clickable.">ⓘ</span>
+            </label>
+            <div class="switch-container">
+              <input type="checkbox" id="toggle-click-through">
+              <span class="switch-slider"></span>
+            </div>
+          </div>
+          
+          <div class="shortcut-info electron-only">
+            <p><strong>Tips:</strong></p>
+            <ul>
+              <li>Double-click blank space to toggle click-through</li>
+              <li>Hovering over cards re-enables control buttons</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
