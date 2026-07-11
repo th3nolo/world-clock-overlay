@@ -653,6 +653,28 @@ class WorldClockApp:
             pass
         return 'local'
 
+    def create_text_with_shadow(self, x, y, text, fill, font, anchor='w'):
+        # Choose a shadow color based on the text color.
+        # Draw a dark shadow under light text, or a light outline under dark text.
+        is_dark_text = fill.lower() in ['#1c1c1e', '#2e3440', '#636366', '#9a9aa0', 'black', '#000000', '#6d7787', '#58657a']
+        shadow_color = '#ffffff' if is_dark_text else '#000000'
+        
+        # 1px offset shadow
+        self.canvas.create_text(
+            x + 1, y + 1,
+            text=text,
+            fill=shadow_color,
+            font=font,
+            anchor=anchor
+        )
+        return self.canvas.create_text(
+            x, y,
+            text=text,
+            fill=fill,
+            font=font,
+            anchor=anchor
+        )
+
     def update_clocks(self):
         self.canvas.delete("all")
         theme = self.get_theme()
@@ -709,7 +731,7 @@ class WorldClockApp:
             self.draw_flag(flag_code, flag_x, flag_y)
             
             # Label
-            self.canvas.create_text(
+            self.create_text_with_shadow(
                 flag_x + 22, flag_y + 5,
                 text=friendly_name,
                 fill=theme['text_muted'],
@@ -720,7 +742,7 @@ class WorldClockApp:
             # Time Offset
             offset = self.get_offset_diff(tz_name)
             if offset:
-                self.canvas.create_text(
+                self.create_text_with_shadow(
                     x2 - 10, flag_y + 5,
                     text=offset,
                     fill=theme['accent'],
@@ -747,7 +769,7 @@ class WorldClockApp:
                 # Draw Time
                 time_y = y1 + 35
                 time_font_size = 14 if show_sec else 16
-                time_text_id = self.canvas.create_text(
+                time_text_id = self.create_text_with_shadow(
                     x1 + 10, time_y,
                     text=time_str,
                     fill=theme['text_main'],
@@ -758,7 +780,7 @@ class WorldClockApp:
                 if period_str:
                     time_bbox = self.canvas.bbox(time_text_id)
                     period_x = time_bbox[2] + 4
-                    self.canvas.create_text(
+                    self.create_text_with_shadow(
                         period_x, time_y + 2,
                         text=period_str.lower(),
                         fill=theme['accent'],
@@ -768,7 +790,7 @@ class WorldClockApp:
                     
                 # Draw Date
                 date_str = time_now.strftime("%a, %b %d")
-                self.canvas.create_text(
+                self.create_text_with_shadow(
                     x1 + 10, y2 - 12,
                     text=date_str,
                     fill=theme['text_muted'],
@@ -776,7 +798,7 @@ class WorldClockApp:
                     anchor='w'
                 )
             except Exception:
-                self.canvas.create_text(
+                self.create_text_with_shadow(
                     x1 + 10, y1 + 35,
                     text="Error",
                     fill='red',
@@ -798,7 +820,7 @@ class WorldClockApp:
         
         # Position status bar at the bottom center
         status_y = h - 14
-        self.canvas.create_text(
+        self.create_text_with_shadow(
             w / 2, status_y,
             text=status_text,
             fill=theme['text_faded'],
