@@ -60,39 +60,51 @@ FLAG_MAP = {
 THEMES = {
     'dark': {
         'bg': '#010101',
-        'card_bg': '#16161a',
-        'card_border': '#2d2d30',
-        'text_main': '#ffffff',
-        'text_muted': '#a0a0a5',
-        'text_faded': '#68686d',  # 20%+ more faded than text_muted
-        'accent': '#3a86ff'
+        'card_bg': '#101014',
+        'card_border': '#2c2c30',
+        'divider': '#26262b',
+        'text_main': '#fafafa',
+        'text_muted': '#8f8f96',
+        'text_faded': '#6b6b72',  # 20%+ more faded than text_muted
+        'accent': '#6ea8ff',
+        'sun': '#ffcf6b',
+        'moon': '#9db4ff'
     },
     'light': {
         'bg': '#010101',
         'card_bg': '#f4f4f7',
         'card_border': '#d1d1d6',
+        'divider': '#e2e2e7',
         'text_main': '#1c1c1e',
-        'text_muted': '#636366',
+        'text_muted': '#70707a',
         'text_faded': '#9a9aa0',  # 20%+ more faded than text_muted
-        'accent': '#007aff'
+        'accent': '#007aff',
+        'sun': '#d9940e',
+        'moon': '#5b76d8'
     },
     'cyberpunk': {
         'bg': '#010101',
         'card_bg': '#0a0810',
         'card_border': '#ff007f',
+        'divider': '#2a1230',
         'text_main': '#00ffff',
         'text_muted': '#8b9bb4',
         'text_faded': '#58657a',  # 20%+ more faded than text_muted
-        'accent': '#ff007f'
+        'accent': '#ff007f',
+        'sun': '#ffd166',
+        'moon': '#9db4ff'
     },
     'nordic': {
         'bg': '#010101',
         'card_bg': '#2e3440',
         'card_border': '#4c566a',
-        'text_main': '#d8dee9',
+        'divider': '#3b4252',
+        'text_main': '#eceff4',
         'text_muted': '#9fa8b8',
         'text_faded': '#6d7787',  # 20%+ more faded than text_muted
-        'accent': '#88c0d0'
+        'accent': '#88c0d0',
+        'sun': '#ebcb8b',
+        'moon': '#81a1c1'
     }
 }
 
@@ -266,54 +278,80 @@ class WorldClockApp:
     def show_setup_wizard(self):
         wizard = tk.Toplevel(self.root)
         wizard.title("World Clock Setup")
-        wizard.geometry("380x420")
         wizard.resizable(False, False)
-        wizard.config(bg="#16161a")
-        
+        wizard.config(bg="#101014")
+
         # Keep wizard on top
         wizard.attributes('-topmost', True)
-        
+
+        # Dark comboboxes: the default Windows theme ignores field colors,
+        # so switch to 'clam' which allows full recoloring
+        style = ttk.Style(wizard)
+        style.theme_use('clam')
+        style.configure(
+            'Wizard.TCombobox',
+            fieldbackground='#1a1a1f',
+            background='#1a1a1f',
+            foreground='#fafafa',
+            arrowcolor='#8f8f96',
+            bordercolor='#2c2c30',
+            lightcolor='#1a1a1f',
+            darkcolor='#1a1a1f',
+            selectbackground='#1a1a1f',
+            selectforeground='#fafafa',
+            padding=6
+        )
+        style.map('Wizard.TCombobox', fieldbackground=[('readonly', '#1a1a1f')])
+        wizard.option_add('*TCombobox*Listbox.background', '#1a1a1f')
+        wizard.option_add('*TCombobox*Listbox.foreground', '#fafafa')
+        wizard.option_add('*TCombobox*Listbox.selectBackground', '#6ea8ff')
+        wizard.option_add('*TCombobox*Listbox.selectForeground', '#0b0b0e')
+
+        body = tk.Frame(wizard, bg="#101014")
+        body.pack(fill=tk.BOTH, expand=True, padx=28, pady=24)
+
         # Title
         tk.Label(
-            wizard, 
-            text="World Clock Setup", 
-            fg="white", bg="#16161a", 
-            font=("Outfit", 14, "bold")
-        ).pack(pady=10)
-        
-        tk.Label(
-            wizard,
-            text="Clock 1 is set to your Local System Time.\nConfigure additional clocks below:",
-            fg="#a0a0a5", bg="#16161a",
-            font=("Outfit", 9),
-            justify="center"
-        ).pack(pady=5)
+            body,
+            text="World Clock",
+            fg="#fafafa", bg="#101014",
+            font=("Outfit", 16, "bold"),
+            anchor="w"
+        ).pack(fill=tk.X)
 
-        # Dropdowns Frame
-        dropdown_frame = tk.Frame(wizard, bg="#16161a")
-        dropdown_frame.pack(pady=10, fill=tk.BOTH, expand=True)
+        tk.Label(
+            body,
+            text="Clock 1 is your local system time.\nPick up to four more timezones to display.",
+            fg="#8f8f96", bg="#101014",
+            font=("Outfit", 9),
+            justify="left",
+            anchor="w"
+        ).pack(fill=tk.X, pady=(6, 0))
+
+        tk.Frame(body, bg="#26262b", height=1).pack(fill=tk.X, pady=(16, 18))
 
         combos = []
 
         # We allow up to 4 additional clocks (total of 5)
         for i in range(4):
-            lbl = tk.Label(
-                dropdown_frame, 
-                text=f"Clock {i+2} Timezone:", 
-                fg="#a0a0a5", bg="#16161a", 
-                font=("Outfit", 9, "bold")
-            )
-            lbl.grid(row=i, column=0, padx=10, pady=8, sticky="w")
-            
+            tk.Label(
+                body,
+                text=f"CLOCK {i + 2}",
+                fg="#6b6b72", bg="#101014",
+                font=("Outfit", 8, "bold"),
+                anchor="w"
+            ).pack(fill=tk.X)
+
             combo = ttk.Combobox(
-                dropdown_frame, 
+                body,
                 values=[z[0] for z in COMMON_ZONES[1:]] + ["None"],
                 state="readonly",
-                width=24
+                style='Wizard.TCombobox',
+                font=("Outfit", 10)
             )
             # Default empty comboboxes to "None"
             combo.set("None")
-            combo.grid(row=i, column=1, padx=10, pady=8)
+            combo.pack(fill=tk.X, pady=(3, 12))
             combos.append(combo)
 
         # Set default values for Clock 2 & 3 to Spain and Saudi Arabia for quick setup
@@ -346,18 +384,37 @@ class WorldClockApp:
             wizard.destroy()
             self.setup_main_window()
 
+        tk.Frame(body, bg="#26262b", height=1).pack(fill=tk.X, pady=(6, 16))
+
         # Save Button
         tk.Button(
-            wizard,
+            body,
             text="Save and Launch",
             command=save_setup,
-            bg="#3a86ff", fg="white",
-            activebackground="#2563eb", activeforeground="white",
+            bg="#6ea8ff", fg="#0b0b0e",
+            activebackground="#8dbcff", activeforeground="#0b0b0e",
             font=("Outfit", 10, "bold"),
             relief="flat",
             bd=0,
-            padx=20, pady=8
-        ).pack(pady=15)
+            cursor="hand2",
+            padx=20, pady=9
+        ).pack(fill=tk.X)
+
+        tk.Label(
+            body,
+            text="Everything can be changed later from the right-click menu.",
+            fg="#6b6b72", bg="#101014",
+            font=("Outfit", 8),
+            justify="center"
+        ).pack(fill=tk.X, pady=(10, 0))
+
+        # Size to content and center on screen
+        wizard.update_idletasks()
+        win_w = 400
+        win_h = wizard.winfo_reqheight()
+        pos_x = (wizard.winfo_screenwidth() - win_w) // 2
+        pos_y = (wizard.winfo_screenheight() - win_h) // 2
+        wizard.geometry(f"{win_w}x{win_h}+{pos_x}+{pos_y}")
 
         # Exit wizard cleanly
         wizard.protocol("WM_DELETE_WINDOW", lambda: sys.exit(0))
@@ -486,11 +543,10 @@ class WorldClockApp:
         
         if self.settings['layout'] == 'horizontal':
             w = N * 190 + 20 if show_sec else N * 180 + 20
-            h = 125  # Space for cards + status bar at the bottom
+            h = 132  # Panel: clock columns + status strip
         else:
             w = 200
-            card_h = 75 if show_sec else 65
-            h = N * (card_h + 10) + 40  # Cards + status bar padding
+            h = N * 72 + 58  # Panel: clock rows + two-line status strip
         return w, h
 
     def apply_layout_size(self):
@@ -608,14 +664,12 @@ class WorldClockApp:
             return "Local"
         try:
             now = datetime.now()
-            local_offset_sec = -now.astimezone().utcoffset().total_seconds()
-            local_offset_min = -int(local_offset_sec / 60)
-            
+            local_offset_min = int(now.astimezone().utcoffset().total_seconds() / 60)
+
             target_tz = ZoneInfo(target_tz_name)
-            target_offset_sec = now.astimezone(target_tz).utcoffset().total_seconds()
-            target_offset_min = int(target_offset_sec / 60)
-            
-            diff_min = target_offset_min - (-local_offset_min)
+            target_offset_min = int(now.astimezone(target_tz).utcoffset().total_seconds() / 60)
+
+            diff_min = target_offset_min - local_offset_min
             diff_hours = diff_min / 60
             
             if diff_hours == 0:
@@ -627,6 +681,15 @@ class WorldClockApp:
             return f"{sign}{diff_hours:.1f}h"
         except Exception:
             return ""
+
+    def get_short_label(self, clock_info):
+        # "Spain (Madrid)" -> "MADRID"; "Local System Time" -> "LOCAL"
+        if clock_info.get('tz') == 'Local':
+            return 'LOCAL'
+        name = clock_info.get('name', '')
+        if '(' in name and ')' in name:
+            name = name[name.index('(') + 1:name.index(')')]
+        return name.upper()
 
     def get_local_flag_code(self):
         try:
@@ -653,28 +716,6 @@ class WorldClockApp:
             pass
         return 'local'
 
-    def create_text_with_shadow(self, x, y, text, fill, font, anchor='w'):
-        # Choose a shadow color based on the text color.
-        # Draw a dark shadow under light text, or a light outline under dark text.
-        is_dark_text = fill.lower() in ['#1c1c1e', '#2e3440', '#636366', '#9a9aa0', 'black', '#000000', '#6d7787', '#58657a']
-        shadow_color = '#ffffff' if is_dark_text else '#000000'
-        
-        # 1px offset shadow
-        self.canvas.create_text(
-            x + 1, y + 1,
-            text=text,
-            fill=shadow_color,
-            font=font,
-            anchor=anchor
-        )
-        return self.canvas.create_text(
-            x, y,
-            text=text,
-            fill=fill,
-            font=font,
-            anchor=anchor
-        )
-
     def update_clocks(self):
         self.canvas.delete("all")
         theme = self.get_theme()
@@ -693,120 +734,154 @@ class WorldClockApp:
         use_24h = self.settings['format'] == '24h'
         
         clocks = self.settings.get('clocks', [])
-        
-        # Draw Clock Cards
+        n = max(len(clocks), 1)
+
+        # Single rounded panel holding all clocks + the status strip
+        panel_x1, panel_y1 = 10, 10
+        panel_x2, panel_y2 = w - 10, h - 10
+        # The narrow vertical window stacks the status into two lines
+        status_h = 24 if layout == 'horizontal' else 38
+        status_sep_y = panel_y2 - status_h
+
+        self.draw_rounded_rect(
+            panel_x1, panel_y1, panel_x2, panel_y2, 14,
+            fill=theme['card_bg'],
+            outline=theme['card_border'],
+            width=1
+        )
+
+        # Hairline between the clocks and the status strip
+        self.canvas.create_line(
+            panel_x1 + 6, status_sep_y, panel_x2 - 6, status_sep_y,
+            fill=theme['divider']
+        )
+
+        time_font_size = 16 if show_sec else 20
+        # Light-weight face for the hero time (Segoe UI Light ships with Windows)
+        time_font = ('Segoe UI Light', time_font_size) if self.is_windows else ('Outfit', time_font_size)
+        symbol_font = ('Segoe UI Symbol', 9) if self.is_windows else ('Outfit', 9)
+
+        if layout == 'horizontal':
+            col_w = (panel_x2 - panel_x1) / n
+        else:
+            row_h = (status_sep_y - panel_y1) / n
+
+        # Draw Clock Cells
         for i, clock_info in enumerate(clocks):
             tz_name = clock_info['tz']
-            friendly_name = clock_info['name']
             flag_code = clock_info['flag_code']
-            
+
             # Dynamically override the generic 'local' clock face flag with country flag
             if flag_code == 'local':
                 flag_code = self.get_local_flag_code()
-            
-            # Calculate dynamic card coordinates
+
+            # Cell coordinates inside the panel + hairline divider between cells
             if layout == 'horizontal':
-                card_w = 180 if show_sec else 170
-                x1 = 10 + i * (card_w + 10)
-                y1 = 10
-                x2 = x1 + card_w
-                y2 = h - 35  # Reserved space for bottom status bar
+                x1 = panel_x1 + i * col_w
+                x2 = x1 + col_w
+                y1 = panel_y1
+                y2 = status_sep_y
+                if i > 0:
+                    self.canvas.create_line(x1, y1 + 12, x1, y2 - 12, fill=theme['divider'])
             else:
-                card_h = 75 if show_sec else 65
-                x1 = 10
-                y1 = 10 + i * (card_h + 10)
-                x2 = w - 10
-                y2 = y1 + card_h
-                
-            self.draw_rounded_rect(
-                x1, y1, x2, y2, 8, 
-                fill=theme['card_bg'], 
-                outline=theme['card_border'], 
-                width=1
-            )
-            
-            # Draw Flag
-            flag_x = x1 + 10
-            flag_y = y1 + 10
-            self.draw_flag(flag_code, flag_x, flag_y)
-            
-            # Label
-            self.create_text_with_shadow(
-                flag_x + 22, flag_y + 5,
-                text=friendly_name,
-                fill=theme['text_muted'],
-                font=('Outfit', 9, 'bold'),
-                anchor='w'
-            )
-            
-            # Time Offset
-            offset = self.get_offset_diff(tz_name)
-            if offset:
-                self.create_text_with_shadow(
-                    x2 - 10, flag_y + 5,
-                    text=offset,
-                    fill=theme['accent'],
-                    font=('Outfit', 8, 'bold'),
-                    anchor='e'
-                )
-                
-            # Time Formatting
+                x1 = panel_x1
+                x2 = panel_x2
+                y1 = panel_y1 + i * row_h
+                y2 = y1 + row_h
+                if i > 0:
+                    self.canvas.create_line(x1 + 12, y1, x2 - 12, y1, fill=theme['divider'])
+
+            cell_h = y2 - y1
+            pad = 16
+            head_y = y1 + cell_h * 0.22
+            time_y = y1 + cell_h * 0.52
+            meta_y = y1 + cell_h * 0.82
+
             try:
                 if tz_name == 'Local':
                     time_now = datetime.now()
                 else:
                     time_now = datetime.now(ZoneInfo(tz_name))
-                
-                if use_24h:
-                    time_fmt = "%H:%M:%S" if show_sec else "%H:%M"
-                    time_str = time_now.strftime(time_fmt)
-                    period_str = ""
-                else:
-                    time_fmt = "%I:%M:%S" if show_sec else "%I:%M"
-                    time_str = time_now.strftime(time_fmt).lstrip('0')
-                    period_str = time_now.strftime("%p")
-                    
-                # Draw Time
-                time_y = y1 + 35
-                time_font_size = 14 if show_sec else 16
-                time_text_id = self.create_text_with_shadow(
-                    x1 + 10, time_y,
-                    text=time_str,
-                    fill=theme['text_main'],
-                    font=('Courier New', time_font_size, 'bold') if self.is_windows else ('Outfit', time_font_size, 'bold'),
-                    anchor='w'
-                )
-                
-                if period_str:
-                    time_bbox = self.canvas.bbox(time_text_id)
-                    period_x = time_bbox[2] + 4
-                    self.create_text_with_shadow(
-                        period_x, time_y + 2,
-                        text=period_str.lower(),
-                        fill=theme['accent'],
-                        font=('Outfit', 8, 'bold'),
-                        anchor='w'
-                    )
-                    
-                # Draw Date
-                date_str = time_now.strftime("%a, %b %d")
-                self.create_text_with_shadow(
-                    x1 + 10, y2 - 12,
-                    text=date_str,
-                    fill=theme['text_muted'],
-                    font=('Outfit', 8),
-                    anchor='w'
-                )
             except Exception:
-                self.create_text_with_shadow(
-                    x1 + 10, y1 + 35,
+                self.canvas.create_text(
+                    x1 + pad, time_y,
                     text="Error",
                     fill='red',
                     font=('Outfit', 10),
                     anchor='w'
                 )
+                continue
 
-        # Render bottom Status Bar (Session & Work Stats)
+            # Head row: flag + short uppercase label + day/night mark
+            flag_x = x1 + pad
+            self.draw_flag(flag_code, flag_x, head_y - 5)
+            self.canvas.create_text(
+                flag_x + 23, head_y,
+                text=self.get_short_label(clock_info),
+                fill=theme['text_muted'],
+                font=('Outfit', 8, 'bold'),
+                anchor='w'
+            )
+
+            is_day = 7 <= time_now.hour < 19
+            self.canvas.create_text(
+                x2 - pad, head_y,
+                text='☀' if is_day else '☾',
+                fill=theme['sun'] if is_day else theme['moon'],
+                font=symbol_font,
+                anchor='e'
+            )
+
+            # Time Formatting
+            if use_24h:
+                time_fmt = "%H:%M:%S" if show_sec else "%H:%M"
+                time_str = time_now.strftime(time_fmt)
+                period_str = ""
+            else:
+                time_fmt = "%I:%M:%S" if show_sec else "%I:%M"
+                time_str = time_now.strftime(time_fmt).lstrip('0')
+                period_str = time_now.strftime("%p")
+
+            # Draw Time (hero element)
+            time_text_id = self.canvas.create_text(
+                x1 + pad, time_y,
+                text=time_str,
+                fill=theme['text_main'],
+                font=time_font,
+                anchor='w'
+            )
+
+            if period_str:
+                time_bbox = self.canvas.bbox(time_text_id)
+                self.canvas.create_text(
+                    time_bbox[2] + 4, time_y + 4,
+                    text=period_str.lower(),
+                    fill=theme['accent'],
+                    font=('Outfit', 8, 'bold'),
+                    anchor='w'
+                )
+
+            # Meta row: offset + date
+            meta_x = x1 + pad
+            offset = self.get_offset_diff(tz_name)
+            if offset and offset != 'Local':
+                offset_id = self.canvas.create_text(
+                    meta_x, meta_y,
+                    text=offset,
+                    fill=theme['accent'],
+                    font=('Outfit', 8, 'bold'),
+                    anchor='w'
+                )
+                meta_x = self.canvas.bbox(offset_id)[2] + 6
+            self.canvas.create_text(
+                meta_x, meta_y,
+                text=time_now.strftime("%a, %b %d"),
+                fill=theme['text_faded'],
+                font=('Outfit', 8),
+                anchor='w'
+            )
+
+        # Render Status Strip inside the panel (Session & Work Stats)
         elapsed_delta = datetime.now() - self.session_start
         elapsed_hours, remainder = divmod(elapsed_delta.seconds, 3600)
         elapsed_minutes, elapsed_seconds = divmod(remainder, 60)
@@ -815,19 +890,34 @@ class WorldClockApp:
         # Fetch monthly statistics
         days_worked, hours_worked = self.get_monthly_stats()
         current_month = datetime.now().strftime("%B")
-        
-        status_text = f"⏱️ Work: {elapsed_str} | {current_month}: {days_worked} days, {hours_worked:.1f} hrs"
-        
-        # Position status bar at the bottom center
-        status_y = h - 14
-        self.create_text_with_shadow(
-            w / 2, status_y,
-            text=status_text,
-            fill=theme['text_faded'],
-            font=('Outfit', 8, 'bold'),
-            anchor='center'
-        )
-                
+        days_label = "day" if days_worked == 1 else "days"
+        month_part = f"{current_month}: {days_worked} {days_label}  ·  {hours_worked:.1f} hrs"
+        status_font = ('Outfit', 8, 'bold')
+
+        if layout == 'horizontal':
+            self.canvas.create_text(
+                w / 2, status_sep_y + status_h / 2,
+                text=f"⏱ Work {elapsed_str}  ·  {month_part}",
+                fill=theme['text_faded'],
+                font=status_font,
+                anchor='center'
+            )
+        else:
+            self.canvas.create_text(
+                w / 2, status_sep_y + 12,
+                text=f"⏱ Work {elapsed_str}",
+                fill=theme['text_faded'],
+                font=status_font,
+                anchor='center'
+            )
+            self.canvas.create_text(
+                w / 2, status_sep_y + 26,
+                text=month_part,
+                fill=theme['text_faded'],
+                font=status_font,
+                anchor='center'
+            )
+
         self.root.after(200, self.update_clocks)
 
     # ==========================================================================
