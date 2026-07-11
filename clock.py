@@ -64,6 +64,7 @@ THEMES = {
         'card_border': '#2d2d30',
         'text_main': '#ffffff',
         'text_muted': '#a0a0a5',
+        'text_faded': '#68686d',  # 20%+ more faded than text_muted
         'accent': '#3a86ff'
     },
     'light': {
@@ -72,6 +73,7 @@ THEMES = {
         'card_border': '#d1d1d6',
         'text_main': '#1c1c1e',
         'text_muted': '#636366',
+        'text_faded': '#9a9aa0',  # 20%+ more faded than text_muted
         'accent': '#007aff'
     },
     'cyberpunk': {
@@ -80,6 +82,7 @@ THEMES = {
         'card_border': '#ff007f',
         'text_main': '#00ffff',
         'text_muted': '#8b9bb4',
+        'text_faded': '#58657a',  # 20%+ more faded than text_muted
         'accent': '#ff007f'
     },
     'nordic': {
@@ -88,6 +91,7 @@ THEMES = {
         'card_border': '#4c566a',
         'text_main': '#d8dee9',
         'text_muted': '#9fa8b8',
+        'text_faded': '#6d7787',  # 20%+ more faded than text_muted
         'accent': '#88c0d0'
     }
 }
@@ -624,6 +628,31 @@ class WorldClockApp:
         except Exception:
             return ""
 
+    def get_local_flag_code(self):
+        try:
+            # First, check if the system timezone name matches any flag directly
+            local_tz = datetime.now().astimezone().tzinfo
+            tz_name = str(local_tz)
+            if tz_name in FLAG_MAP:
+                return FLAG_MAP[tz_name]
+                
+            # Fallback: estimate via UTC offset (extremely robust)
+            now = datetime.now()
+            offset_sec = now.astimezone().utcoffset().total_seconds()
+            offset_hours = offset_sec / 3600.0
+            
+            if offset_hours == -4.0:
+                return 'venezuela'
+            elif offset_hours == 3.0:
+                return 'ksa'
+            elif offset_hours in [1.0, 2.0]:
+                return 'spain'
+            elif offset_hours in [-5.0, -6.0, -7.0, -8.0]:
+                return 'usa'
+        except Exception:
+            pass
+        return 'local'
+
     def update_clocks(self):
         self.canvas.delete("all")
         theme = self.get_theme()
@@ -648,6 +677,10 @@ class WorldClockApp:
             tz_name = clock_info['tz']
             friendly_name = clock_info['name']
             flag_code = clock_info['flag_code']
+            
+            # Dynamically override the generic 'local' clock face flag with country flag
+            if flag_code == 'local':
+                flag_code = self.get_local_flag_code()
             
             # Calculate dynamic card coordinates
             if layout == 'horizontal':
@@ -768,7 +801,7 @@ class WorldClockApp:
         self.canvas.create_text(
             w / 2, status_y,
             text=status_text,
-            fill=theme['text_muted'],
+            fill=theme['text_faded'],
             font=('Outfit', 8, 'bold'),
             anchor='center'
         )
