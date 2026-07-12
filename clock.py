@@ -59,7 +59,12 @@ FLAG_MAP = {
 # Supported translucency levels (right-click menu, tray menu, scroll wheel)
 OPACITY_LEVELS = [0.3, 0.5, 0.7, 0.85, 1.0]
 
-# Design Themes
+# Design Themes.
+# Window '-alpha' dims text and panel by the same amount, so over a light
+# desktop the panel washes out toward white. text_muted/text_faded must stay
+# near-white (near-black for the light theme) to keep contrast through that
+# blend, and text_shadow is drawn 1px behind every canvas text for edge
+# contrast against whatever bleeds through.
 THEMES = {
     'dark': {
         'bg': '#010101',
@@ -67,8 +72,9 @@ THEMES = {
         'card_border': '#2c2c30',
         'divider': '#26262b',
         'text_main': '#fafafa',
-        'text_muted': '#8f8f96',
-        'text_faded': '#6b6b72',  # 20%+ more faded than text_muted
+        'text_muted': '#e0e0e4',
+        'text_faded': '#cdcdd4',
+        'text_shadow': '#000000',
         'accent': '#6ea8ff',
         'sun': '#ffcf6b',
         'moon': '#9db4ff'
@@ -79,8 +85,9 @@ THEMES = {
         'card_border': '#d1d1d6',
         'divider': '#e2e2e7',
         'text_main': '#1c1c1e',
-        'text_muted': '#70707a',
-        'text_faded': '#9a9aa0',  # 20%+ more faded than text_muted
+        'text_muted': '#3e3e46',
+        'text_faded': '#5a5a64',
+        'text_shadow': '#ffffff',
         'accent': '#007aff',
         'sun': '#d9940e',
         'moon': '#5b76d8'
@@ -91,8 +98,9 @@ THEMES = {
         'card_border': '#ff007f',
         'divider': '#2a1230',
         'text_main': '#00ffff',
-        'text_muted': '#8b9bb4',
-        'text_faded': '#58657a',  # 20%+ more faded than text_muted
+        'text_muted': '#e3e7ee',
+        'text_faded': '#d3d9e4',
+        'text_shadow': '#000000',
         'accent': '#ff007f',
         'sun': '#ffd166',
         'moon': '#9db4ff'
@@ -103,8 +111,9 @@ THEMES = {
         'card_border': '#4c566a',
         'divider': '#3b4252',
         'text_main': '#eceff4',
-        'text_muted': '#9fa8b8',
-        'text_faded': '#6d7787',  # 20%+ more faded than text_muted
+        'text_muted': '#dbe1ea',
+        'text_faded': '#c8d0dc',
+        'text_shadow': '#000000',
         'accent': '#88c0d0',
         'sun': '#ebcb8b',
         'moon': '#81a1c1'
@@ -660,6 +669,14 @@ class WorldClockApp:
         ]
         return self.canvas.create_polygon(points, **kwargs, smooth=True)
 
+    def draw_text(self, x, y, **kwargs):
+        # 1px shadow pass behind every text (variant D of the legibility
+        # experiments); returns the foreground text id for bbox() callers
+        shadow = dict(kwargs)
+        shadow['fill'] = self.get_theme().get('text_shadow', '#000000')
+        self.canvas.create_text(x + 1, y + 1, **shadow)
+        return self.canvas.create_text(x, y, **kwargs)
+
     def draw_flag(self, flag_code, x, y):
         w, h = 16, 10
         if flag_code == 'local':
@@ -846,7 +863,7 @@ class WorldClockApp:
                 else:
                     time_now = datetime.now(ZoneInfo(tz_name))
             except Exception:
-                self.canvas.create_text(
+                self.draw_text(
                     x1 + pad, time_y,
                     text="Error",
                     fill='red',
@@ -858,7 +875,7 @@ class WorldClockApp:
             # Head row: flag + short uppercase label + day/night mark
             flag_x = x1 + pad
             self.draw_flag(flag_code, flag_x, head_y - 5)
-            self.canvas.create_text(
+            self.draw_text(
                 flag_x + 23, head_y,
                 text=self.get_short_label(clock_info),
                 fill=theme['text_muted'],
@@ -867,7 +884,7 @@ class WorldClockApp:
             )
 
             is_day = 7 <= time_now.hour < 19
-            self.canvas.create_text(
+            self.draw_text(
                 x2 - pad, head_y,
                 text='☀' if is_day else '☾',
                 fill=theme['sun'] if is_day else theme['moon'],
@@ -886,7 +903,7 @@ class WorldClockApp:
                 period_str = time_now.strftime("%p")
 
             # Draw Time (hero element)
-            time_text_id = self.canvas.create_text(
+            time_text_id = self.draw_text(
                 x1 + pad, time_y,
                 text=time_str,
                 fill=theme['text_main'],
@@ -896,7 +913,7 @@ class WorldClockApp:
 
             if period_str:
                 time_bbox = self.canvas.bbox(time_text_id)
-                self.canvas.create_text(
+                self.draw_text(
                     time_bbox[2] + 4, time_y + 4,
                     text=period_str.lower(),
                     fill=theme['accent'],
@@ -908,7 +925,7 @@ class WorldClockApp:
             meta_x = x1 + pad
             offset = self.get_offset_diff(tz_name)
             if offset and offset != 'Local':
-                offset_id = self.canvas.create_text(
+                offset_id = self.draw_text(
                     meta_x, meta_y,
                     text=offset,
                     fill=theme['accent'],
@@ -916,7 +933,7 @@ class WorldClockApp:
                     anchor='w'
                 )
                 meta_x = self.canvas.bbox(offset_id)[2] + 6
-            self.canvas.create_text(
+            self.draw_text(
                 meta_x, meta_y,
                 text=time_now.strftime("%a, %b %d"),
                 fill=theme['text_faded'],
@@ -938,7 +955,7 @@ class WorldClockApp:
         status_font = ('Outfit', 8, 'bold')
 
         if layout == 'horizontal':
-            self.canvas.create_text(
+            self.draw_text(
                 w / 2, status_sep_y + status_h / 2,
                 text=f"⏱ Work {elapsed_str}  ·  {month_part}",
                 fill=theme['text_faded'],
@@ -946,14 +963,14 @@ class WorldClockApp:
                 anchor='center'
             )
         else:
-            self.canvas.create_text(
+            self.draw_text(
                 w / 2, status_sep_y + 12,
                 text=f"⏱ Work {elapsed_str}",
                 fill=theme['text_faded'],
                 font=status_font,
                 anchor='center'
             )
-            self.canvas.create_text(
+            self.draw_text(
                 w / 2, status_sep_y + 26,
                 text=month_part,
                 fill=theme['text_faded'],

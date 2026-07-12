@@ -15,6 +15,7 @@ A Python desktop overlay, built with Tkinter, that shows your local time and up 
 - **Status bar**: a live stopwatch for the current session, plus days worked and total hours in the current month.
 - **Four themes**: Frosted Dark, Frosted Light, Cyberpunk Neon, and Nordic Frost.
 - **Translucency**: set the overlay between 30% and 100% opacity from the right-click menu, or scroll the mouse wheel while hovering the overlay.
+- **Readable on light backgrounds**: secondary text (labels, dates, status bar) is near-white — near-black in the light theme — and every text is drawn with a 1px contrast shadow, so the translucent overlay stays legible over white windows.
 - **Click-through (Windows)**: clicks on the empty background pass through to the window underneath.
 - **Corner anchoring**: when the layout toggles, the window keeps its nearest screen corner instead of drifting.
 - **Drag feedback**: the overlay dims to 30% opacity while being dragged.

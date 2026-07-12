@@ -89,6 +89,16 @@ def run_tests(app):
     check('monthly hours = 3.0, live session counted once', abs(hours - 3.0) < 0.02)
     check('unique days = 2 (past day + today)', days == 2)
 
+    # --- Text shadow: draw_text paints a shadow copy behind the text ---
+    before = len(app.canvas.find_all())
+    text_id = app.draw_text(50, 50, text='probe', fill='#ffffff', font=('Outfit', 8))
+    check('draw_text adds two canvas items', len(app.canvas.find_all()) == before + 2)
+    check('returned id is the foreground text', app.canvas.itemcget(text_id, 'fill') == '#ffffff')
+    shadow_color = clock.THEMES[app.settings['theme']]['text_shadow']
+    check('shadow color and 1px offset',
+          app.canvas.itemcget(text_id - 1, 'fill') == shadow_color
+          and app.canvas.coords(text_id - 1) == [51.0, 51.0])
+
 def main():
     app = clock.WorldClockApp()
 
