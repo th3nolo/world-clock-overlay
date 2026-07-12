@@ -308,6 +308,12 @@ class WorldClockApp:
         self.pause_btn_bbox = None  # screen hit-area of the timer text
         self.press_on_pause = False
         self.drag_moved = False
+        self.hidden = False         # overlay withdrawn, tray icon remains
+        self.peeking = False        # shown temporarily until the mouse leaves
+        self.peek_hovered = False
+        self.peek_start = 0.0
+        self.h_hold_start = None    # hold H over the overlay to hide it
+        self._tray_click_after = None
         self.stats_cache = None  # (month, today, unique_days, base_seconds, today_seconds)
 
         # If no clocks are configured (First run), show setup wizard
@@ -528,17 +534,28 @@ class WorldClockApp:
             self.root.after_cancel(self._redraw_after)
         self.update_clocks()
 
-    def is_space_down(self):
-        # The frameless overlay never receives keyboard focus, so a normal
-        # <space> binding would never fire; read the async key state instead
+    def is_key_down(self, vk):
+        # The frameless overlay never receives keyboard focus, so normal key
+        # bindings would never fire; read the async key state instead
         try:
             import ctypes
-            return bool(ctypes.windll.user32.GetAsyncKeyState(0x20) & 0x8000)
+            return bool(ctypes.windll.user32.GetAsyncKeyState(vk) & 0x8000)
         except Exception:
             return False
 
+    def is_space_down(self):
+        return self.is_key_down(0x20)
+
+    def is_h_down(self):
+        return self.is_key_down(0x48)
+
     def poll_pause_hotkey(self):
-        if self.is_space_down() and self.is_pointer_over_window():
+        # A withdrawn window still reports stale geometry, so hover-driven
+        # hotkeys must be dead while hidden
+        over = not self.hidden and self.is_pointer_over_window()
+
+        # Space held over the overlay: pause/resume
+        if self.is_space_down() and over:
             if self.space_hold_start is None:
                 self.space_hold_start = time.monotonic()
             elif (not self.space_toggled
@@ -548,10 +565,83 @@ class WorldClockApp:
         else:
             self.space_hold_start = None
             self.space_toggled = False
+
+        # H held over the overlay: hide to tray; the window fades out
+        # during the hold so the gesture is visible while it arms
+        if self.is_h_down() and over:
+            if self.h_hold_start is None:
+                self.h_hold_start = time.monotonic()
+            frac = min(1.0, (time.monotonic() - self.h_hold_start) / PAUSE_HOLD_SEC)
+            self.root.attributes(
+                '-alpha', self.settings['opacity'] * (1 - frac) + 0.05 * frac)
+            if frac >= 1.0:
+                self.h_hold_start = None
+                self.hide_overlay()
+        elif self.h_hold_start is not None:
+            self.h_hold_start = None
+            self.apply_transparency()  # released early: restore opacity
+
         self.draw_hold_bar()
         # Animate at ~60fps during a hold, sample lazily otherwise
-        interval = 16 if self.space_hold_start is not None else 50
+        holding = self.space_hold_start is not None or self.h_hold_start is not None
+        interval = 16 if holding else 50
         self._poll_after = self.root.after(interval, self.poll_pause_hotkey)
+
+    # ==========================================================================
+    # Hide to Tray / Peek
+    # ==========================================================================
+    def hide_overlay(self):
+        if not HAS_TRAY:
+            return  # without a tray icon there would be no way back
+        self.hidden = True
+        self.peeking = False
+        self.root.withdraw()
+        self.apply_transparency()  # reset any mid-fade alpha for the next show
+
+    def show_overlay(self, peek=False):
+        self.hidden = False
+        self.root.deiconify()
+        self.root.attributes('-topmost', True)
+        self.root.lift()
+        self.apply_transparency()
+        self.peeking = peek
+        if peek:
+            self.peek_hovered = False
+            self.peek_start = time.monotonic()
+            self.peek_watch()
+
+    def peek_watch(self):
+        # Peek lifecycle: stay visible while the mouse is over the overlay,
+        # hide once it leaves (or after 6s if it never arrives)
+        if not self.peeking:
+            return
+        over = self.is_pointer_over_window()
+        if over:
+            self.peek_hovered = True
+        left_after_hover = self.peek_hovered and not over
+        never_arrived = (not self.peek_hovered
+                         and time.monotonic() - self.peek_start > 6.0)
+        if left_after_hover or never_arrived:
+            self.hide_overlay()
+            return
+        self.root.after(150, self.peek_watch)
+
+    def on_tray_activate(self):
+        # pystray fires the same default action for single and double clicks,
+        # so tell them apart with a 350ms window: one click peeks, two show
+        if self._tray_click_after is not None:
+            self.root.after_cancel(self._tray_click_after)
+            self._tray_click_after = None
+            self.show_overlay(peek=False)   # double click: stay visible
+        else:
+            self._tray_click_after = self.root.after(350, self._tray_single_click)
+
+    def _tray_single_click(self):
+        self._tray_click_after = None
+        if self.hidden:
+            self.show_overlay(peek=True)    # single click: peek
+        else:
+            self.root.lift()
 
     def draw_hold_bar(self):
         # Hold-to-pause progress: the status divider fills from both edges
@@ -1376,6 +1466,7 @@ class WorldClockApp:
             ('command',
              "Resume Work Timer" if self.paused else "Pause Work Timer",
              self.toggle_pause),
+            ('command', "Hide Overlay (hold H)", self.hide_overlay),
             ('command', "Toggle Layout (Double-Click)", self.toggle_layout),
             ('command', "Reset Clocks Setup Wizard", self.reset_clocks),
             ('separator',),
@@ -1464,6 +1555,15 @@ class WorldClockApp:
         def on_toggle_pause(icon, item):
             self.root.after(0, self.toggle_pause)
 
+        def on_tray_click(icon, item):
+            self.root.after(0, self.on_tray_activate)
+
+        def on_show_overlay(icon, item):
+            self.root.after(0, lambda: self.show_overlay(peek=False))
+
+        def on_hide_overlay(icon, item):
+            self.root.after(0, self.hide_overlay)
+
         # pystray requires two-parameter actions, so bind the value via a factory
         def opacity_item(op):
             return item(f"{int(op * 100)}%", lambda icon, item: on_change_opacity(icon, item, op))
@@ -1473,6 +1573,12 @@ class WorldClockApp:
             self.root.after(0, self.on_exit)
 
         menu = pystray.Menu(
+            # Invisible default action: fires on tray icon clicks
+            item('activate', on_tray_click, default=True, visible=False),
+            item('Show Overlay', on_show_overlay,
+                 visible=lambda item: self.hidden),
+            item('Hide Overlay', on_hide_overlay,
+                 visible=lambda item: not self.hidden),
             item(lambda text: 'Resume Work Timer' if self.paused else 'Pause Work Timer',
                  on_toggle_pause),
             item('Toggle Layout', on_toggle_layout),

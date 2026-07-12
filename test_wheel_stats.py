@@ -221,6 +221,56 @@ def run_tests(app):
     app.stop_drag(moved)
     check('drag starting on the timer moves, never toggles', not app.paused)
 
+    # --- Hide to tray, peek, and tray click timing ---
+    app.hide_overlay()
+    check('hide withdraws the window',
+          app.hidden and app.root.state() == 'withdrawn')
+
+    app.on_tray_activate()
+    app.on_tray_activate()  # second click inside the 350ms window
+    check('tray double-click shows permanently',
+          not app.hidden and not app.peeking and app.root.state() == 'normal')
+
+    app.hide_overlay()
+    app._tray_single_click()
+    check('tray single click peeks', not app.hidden and app.peeking)
+    app.is_pointer_over_window = lambda: True
+    app.peek_watch()   # mouse arrives on the overlay
+    check('peek stays while hovered', not app.hidden)
+    app.is_pointer_over_window = lambda: False
+    app.peek_watch()   # mouse leaves
+    check('peek hides when the mouse leaves', app.hidden)
+
+    app.show_overlay()
+    check('show restores the window',
+          not app.hidden and app.root.state() == 'normal')
+
+    # --- Held H over the overlay hides it (with fade) ---
+    clock.PAUSE_HOLD_SEC = 0.05
+    app.is_pointer_over_window = lambda: True
+    app.is_h_down = lambda: True
+    app.poll_pause_hotkey()
+    time.sleep(0.1)
+    app.poll_pause_hotkey()
+    check('held H hides the overlay', app.hidden)
+    app.is_h_down = lambda: False
+    app.poll_pause_hotkey()
+    app.show_overlay()
+    check('opacity restored after the fade-out',
+          abs(float(app.root.attributes('-alpha')) - app.settings['opacity']) < 0.01)
+
+    app.hide_overlay()             # H must be inert while hidden
+    app.is_h_down = lambda: True
+    app.poll_pause_hotkey()
+    time.sleep(0.1)
+    app.poll_pause_hotkey()
+    check('H is ignored while hidden',
+          app.hidden and app.h_hold_start is None)
+    app.is_h_down = lambda: False
+    app.show_overlay()
+    app.is_pointer_over_window = lambda: False
+    clock.PAUSE_HOLD_SEC = 0.5
+
     # --- Custom themed context popup (replaces native tk.Menu) ---
     class FakeClick:
         x_root = 150
@@ -233,7 +283,7 @@ def run_tests(app):
     body = popup.win.winfo_children()[0]
     labels = [w for w in body.winfo_children() if isinstance(w, tk.Label)]
     seps = [w for w in body.winfo_children() if isinstance(w, tk.Frame)]
-    check('8 items and 2 separators', len(labels) == 8 and len(seps) == 2)
+    check('9 items and 2 separators', len(labels) == 9 and len(seps) == 2)
     check('popup body and items use theme card_bg',
           body.cget('bg') == theme['card_bg']
           and labels[0].cget('bg') == theme['card_bg'])
