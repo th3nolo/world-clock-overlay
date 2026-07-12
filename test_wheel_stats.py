@@ -154,7 +154,7 @@ def run_tests(app):
     app.is_space_down = lambda: False
     app.poll_pause_hotkey()
 
-    clock.PAUSE_HOLD_SEC = 0.4  # realistic threshold: a typing tap is ~0.1s
+    clock.PAUSE_HOLD_SEC = 0.5  # realistic threshold: a typing tap is ~0.1s
     app.is_space_down = lambda: True
     app.poll_pause_hotkey()
     time.sleep(0.1)
@@ -195,7 +195,7 @@ def run_tests(app):
     app.is_space_down = lambda: False
     app.poll_pause_hotkey()
     app.is_pointer_over_window = lambda: False
-    clock.PAUSE_HOLD_SEC = 0.4
+    clock.PAUSE_HOLD_SEC = 0.5
 
     # --- Text shadow: draw_text paints a shadow copy behind the text ---
     before = len(app.canvas.find_all())

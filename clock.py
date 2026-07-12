@@ -17,7 +17,7 @@ DB_FILE = os.path.join(os.path.expanduser('~'), '.world_clock_work_tracker.db')
 # Space must be HELD this long over the overlay to pause/resume. Typing in
 # another app taps space for ~0.1s; the key state is global, so a quick tap
 # must never count even when the pointer is parked over the overlay.
-PAUSE_HOLD_SEC = 0.4
+PAUSE_HOLD_SEC = 0.5
 
 # Curated list of common timezones for the setup wizard dropdown
 COMMON_ZONES = [
