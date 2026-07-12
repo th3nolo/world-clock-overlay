@@ -171,6 +171,30 @@ def run_tests(app):
     app.poll_pause_hotkey()
     check('held space away from the overlay does nothing', not app.paused)
     app.is_space_down = lambda: False
+    app.poll_pause_hotkey()
+
+    # --- Hold progress bar on the status divider ---
+    clock.PAUSE_HOLD_SEC = 10  # long threshold so the hold stays mid-way
+    app.is_pointer_over_window = lambda: True
+    app.is_space_down = lambda: True
+    app.poll_pause_hotkey()
+    check('hold draws the two converging bar segments',
+          len(app.canvas.find_withtag('hold_bar')) == 2)
+    app.is_space_down = lambda: False
+    app.poll_pause_hotkey()
+    check('early release clears the progress bar',
+          not app.canvas.find_withtag('hold_bar'))
+    clock.PAUSE_HOLD_SEC = 0.05
+    app.is_space_down = lambda: True
+    app.poll_pause_hotkey()
+    time.sleep(0.1)
+    app.poll_pause_hotkey()
+    check('completed hold toggles and clears the bar',
+          app.paused and not app.canvas.find_withtag('hold_bar'))
+    app.toggle_pause()  # leave the app running
+    app.is_space_down = lambda: False
+    app.poll_pause_hotkey()
+    app.is_pointer_over_window = lambda: False
     clock.PAUSE_HOLD_SEC = 0.4
 
     # --- Text shadow: draw_text paints a shadow copy behind the text ---

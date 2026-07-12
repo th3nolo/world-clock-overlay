@@ -384,7 +384,36 @@ class WorldClockApp:
         else:
             self.space_hold_start = None
             self.space_toggled = False
-        self.root.after(50, self.poll_pause_hotkey)
+        self.draw_hold_bar()
+        # Animate at ~60fps during a hold, sample lazily otherwise
+        interval = 16 if self.space_hold_start is not None else 50
+        self.root.after(interval, self.poll_pause_hotkey)
+
+    def draw_hold_bar(self):
+        # Hold-to-pause progress: the status divider fills from both edges
+        # toward the center while Space is held; the toggle fires when the
+        # two halves meet. Smoothstep easing avoids the linear download-bar
+        # feel. (The 200ms full redraw also calls this so the bar survives
+        # canvas.delete("all") between animation frames.)
+        self.canvas.delete('hold_bar')
+        if self.space_hold_start is None or self.space_toggled:
+            return
+        frac = min(1.0, (time.monotonic() - self.space_hold_start) / PAUSE_HOLD_SEC)
+        eased = frac * frac * (3 - 2 * frac)  # gentle start, gentle landing
+        w, h = self.get_window_size()
+        status_h = 24 if self.settings['layout'] == 'horizontal' else 52
+        sep_y = (h - 10) - status_h
+        x1, x2 = 16, w - 16
+        cx = (x1 + x2) / 2
+        accent = self.get_theme()['accent']
+        self.canvas.create_line(
+            x1, sep_y, x1 + eased * (cx - x1), sep_y,
+            fill=accent, width=2, capstyle='round', tags='hold_bar'
+        )
+        self.canvas.create_line(
+            x2 - eased * (x2 - cx), sep_y, x2, sep_y,
+            fill=accent, width=2, capstyle='round', tags='hold_bar'
+        )
 
     # ==========================================================================
     # First-Run Setup Wizard Window
@@ -1095,6 +1124,7 @@ class WorldClockApp:
                 anchor='center'
             )
 
+        self.draw_hold_bar()
         self.root.after(200, self.update_clocks)
 
     # ==========================================================================
