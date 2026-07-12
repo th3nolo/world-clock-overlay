@@ -33,6 +33,7 @@ with open(os.path.join(PROFILE, '.world_clock_overlay.json'), 'w') as f:
     }, f)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tkinter as tk
 import clock
 
 results = []
@@ -196,6 +197,46 @@ def run_tests(app):
     app.poll_pause_hotkey()
     app.is_pointer_over_window = lambda: False
     clock.PAUSE_HOLD_SEC = 0.5
+
+    # --- Custom themed context popup (replaces native tk.Menu) ---
+    class FakeClick:
+        x_root = 150
+        y_root = 150
+
+    theme = clock.THEMES[app.settings['theme']]
+    app.show_context_menu(FakeClick())
+    popup = app.context_popup
+    check('context popup opens', popup is not None)
+    body = popup.win.winfo_children()[0]
+    labels = [w for w in body.winfo_children() if isinstance(w, tk.Label)]
+    seps = [w for w in body.winfo_children() if isinstance(w, tk.Frame)]
+    check('8 items and 2 separators', len(labels) == 8 and len(seps) == 2)
+    check('popup body and items use theme card_bg',
+          body.cget('bg') == theme['card_bg']
+          and labels[0].cget('bg') == theme['card_bg'])
+    check('popup border uses theme card_border',
+          body.cget('highlightbackground') == theme['card_border'])
+    check('separators use theme divider', seps[0].cget('bg') == theme['divider'])
+    check('first item is Pause when running',
+          labels[0].cget('text') == 'Pause Work Timer')
+
+    themes_label = [l for l in labels if l.cget('text').startswith('Themes')][0]
+    themes_sub = app.context_menu_items()[7][2]
+    popup.open_child(themes_label, themes_sub)
+    check('cascade opens a themed submenu',
+          popup.child is not None
+          and popup.child.win.winfo_children()[0].cget('bg') == theme['card_bg'])
+    popup.close_all()
+    check('close_all clears popup and submenu', app.context_popup is None)
+
+    app.pause_work()
+    app.show_context_menu(FakeClick())
+    body2 = app.context_popup.win.winfo_children()[0]
+    first = [w for w in body2.winfo_children() if isinstance(w, tk.Label)][0]
+    check('first item flips to Resume while paused',
+          first.cget('text') == 'Resume Work Timer')
+    app.context_popup.close_all()
+    app.resume_work()
 
     # --- Text shadow: draw_text paints a shadow copy behind the text ---
     before = len(app.canvas.find_all())

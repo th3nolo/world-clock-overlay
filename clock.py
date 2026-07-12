@@ -126,6 +126,155 @@ THEMES = {
     }
 }
 
+class PopupMenu:
+    """Theme-drawn replacement for tk.Menu popups. Native Windows menus keep
+    a white system frame and separators that ignore all color options, so
+    the popup is a frameless Toplevel styled entirely from the active theme."""
+
+    CASCADE_DELAY_MS = 250
+
+    def __init__(self, app, items, x, y, parent=None):
+        self.app = app
+        self.parent = parent
+        self.child = None
+        self.pending_child = None
+        self.closed = False
+        # One shared window list per menu tree (root popup + open submenus)
+        self.windows = [] if parent is None else parent.windows
+        self.theme = theme = app.get_theme()
+
+        self.win = tk.Toplevel(app.root)
+        self.win.overrideredirect(True)
+        self.win.attributes('-topmost', True)
+        self.windows.append(self.win)
+
+        body = tk.Frame(
+            self.win, bg=theme['card_bg'],
+            highlightthickness=1, highlightbackground=theme['card_border']
+        )
+        body.pack(fill=tk.BOTH, expand=True)
+
+        for item in items:
+            if item[0] == 'separator':
+                tk.Frame(body, bg=theme['divider'], height=1).pack(
+                    fill=tk.X, padx=8, pady=4)
+                continue
+            kind, label = item[0], item[1]
+            lbl = tk.Label(
+                body, text=label, anchor='w', justify='left',
+                bg=theme['card_bg'], fg=theme['text_muted'],
+                font=('Outfit', 9), padx=14, pady=5
+            )
+            if kind == 'cascade':
+                lbl.config(text=f"{label}      ▸")
+                lbl.bind('<Enter>', lambda e, l=lbl, sub=item[2]: self.on_cascade_enter(l, sub))
+                lbl.bind('<Button-1>', lambda e, l=lbl, sub=item[2]: self.open_child(l, sub))
+            else:
+                lbl.bind('<Enter>', lambda e, l=lbl: self.on_command_enter(l))
+                lbl.bind('<Button-1>', lambda e, cb=item[2]: self.invoke(cb))
+            lbl.bind('<Leave>', lambda e, l=lbl: self.highlight(l, False))
+            lbl.pack(fill=tk.X)
+
+        self.win.update_idletasks()
+        self.place(x, y)
+
+        root_popup = self.root_popup()
+        self.win.bind('<Escape>', lambda e: root_popup.close_all())
+        self.win.bind('<FocusOut>', lambda e: root_popup.schedule_focus_check())
+        if parent is None:
+            self.win.focus_force()
+
+    def root_popup(self):
+        p = self
+        while p.parent is not None:
+            p = p.parent
+        return p
+
+    def place(self, x, y):
+        w = self.win.winfo_reqwidth()
+        h = self.win.winfo_reqheight()
+        left, top, right, bottom = self.app.get_current_monitor_workarea()
+        x = max(left, min(x, right - w))
+        y = max(top, min(y, bottom - h))
+        self.win.geometry(f'+{int(x)}+{int(y)}')
+
+    def highlight(self, lbl, on):
+        if on:
+            lbl.config(bg=self.theme['accent'],
+                       fg=self.app.contrast_text(self.theme['accent']))
+        else:
+            lbl.config(bg=self.theme['card_bg'], fg=self.theme['text_muted'])
+
+    def on_command_enter(self, lbl):
+        self.highlight(lbl, True)
+        self.cancel_pending()
+        self.close_child()
+
+    def on_cascade_enter(self, lbl, sub):
+        self.highlight(lbl, True)
+        self.cancel_pending()
+        self.pending_child = self.win.after(
+            self.CASCADE_DELAY_MS, lambda: self.open_child(lbl, sub))
+
+    def cancel_pending(self):
+        if self.pending_child:
+            self.win.after_cancel(self.pending_child)
+            self.pending_child = None
+
+    def open_child(self, lbl, sub):
+        self.cancel_pending()
+        self.close_child()
+        x = self.win.winfo_rootx() + self.win.winfo_width() - 4
+        y = lbl.winfo_rooty() - 5
+        self.child = PopupMenu(self.app, sub, x, y, parent=self)
+
+    def close_child(self):
+        if self.child:
+            self.child.destroy_tree()
+            self.child = None
+
+    def invoke(self, callback):
+        self.root_popup().close_all()
+        callback()
+
+    def destroy_tree(self):
+        # Destroy this popup and its submenus without touching the parent
+        self.closed = True
+        self.cancel_pending()
+        self.close_child()
+        try:
+            self.windows.remove(self.win)
+        except ValueError:
+            pass
+        try:
+            self.win.destroy()
+        except Exception:
+            pass
+
+    def close_all(self):
+        root = self.root_popup()
+        if root.closed:
+            return
+        root.destroy_tree()
+        if self.app.context_popup is root:
+            self.app.context_popup = None
+
+    def schedule_focus_check(self):
+        self.win.after(60, self.focus_check)
+
+    def focus_check(self):
+        # Close when focus leaves the menu tree (click on the desktop,
+        # another app, or the overlay itself)
+        if self.closed:
+            return
+        try:
+            focused = self.win.focus_get()
+        except Exception:
+            focused = None
+        if focused is None or focused.winfo_toplevel() not in self.windows:
+            self.close_all()
+
+
 # Conditional imports for System Tray support
 HAS_TRAY = False
 try:
@@ -1137,65 +1286,48 @@ class WorldClockApp:
         b = int(hex_color[5:7], 16)
         return '#101014' if (0.299 * r + 0.587 * g + 0.114 * b) > 150 else '#ffffff'
 
-    def menu_style(self):
-        # Contextual menus reuse the panel palette so they read as part of
-        # the overlay instead of a stock system menu
-        theme = self.get_theme()
-        return dict(
-            tearoff=0,
-            bg=theme['card_bg'],
-            fg=theme['text_muted'],
-            activebackground=theme['accent'],
-            activeforeground=self.contrast_text(theme['accent']),
-            activeborderwidth=0,
-            borderwidth=0,
-            relief='flat',
-            font=('Outfit', 9)
-        )
-
     def create_context_menu(self):
-        style = self.menu_style()
-        self.menu = tk.Menu(self.root, **style)
-
-        self.menu.add_command(label="Pause Work Timer", command=self.toggle_pause)
-        self.menu.add_command(label="Toggle Layout (Double-Click)", command=self.toggle_layout)
-        self.menu.add_command(label="Reset Clocks Setup Wizard", command=self.reset_clocks)
-        self.menu.add_separator()
-
-        format_menu = tk.Menu(self.menu, **style)
-        format_menu.add_command(label="12-Hour (AM/PM)", command=lambda: self.change_format('12h'))
-        format_menu.add_command(label="24-Hour", command=lambda: self.change_format('24h'))
-        self.menu.add_cascade(label="Time Format", menu=format_menu)
-
-        self.menu.add_command(label="Toggle Seconds", command=self.toggle_seconds)
-
-        opacity_menu = tk.Menu(self.menu, **style)
-        for op in OPACITY_LEVELS:
-            opacity_menu.add_command(
-                label=f"{int(op*100)}%",
-                command=lambda o=op: self.change_opacity(o)
-            )
-        self.menu.add_cascade(label="Translucency", menu=opacity_menu)
-
-        theme_menu = tk.Menu(self.menu, **style)
-        theme_menu.add_command(label="Frosted Dark", command=lambda: self.change_theme('dark'))
-        theme_menu.add_command(label="Frosted Light", command=lambda: self.change_theme('light'))
-        theme_menu.add_command(label="Cyberpunk Neon", command=lambda: self.change_theme('cyberpunk'))
-        theme_menu.add_command(label="Nordic Frost", command=lambda: self.change_theme('nordic'))
-        self.menu.add_cascade(label="Themes", menu=theme_menu)
-
-        self.menu.add_separator()
-        self.menu.add_command(label="Exit App", command=self.on_exit)
-
+        self.context_popup = None
         if platform.system() == 'Darwin':
             self.canvas.bind('<Button-2>', self.show_context_menu)
         else:
             self.canvas.bind('<Button-3>', self.show_context_menu)
 
+    def context_menu_items(self):
+        # Built fresh on every right-click, so labels and theme colors are
+        # always in sync with the current state
+        return [
+            ('command',
+             "Resume Work Timer" if self.paused else "Pause Work Timer",
+             self.toggle_pause),
+            ('command', "Toggle Layout (Double-Click)", self.toggle_layout),
+            ('command', "Reset Clocks Setup Wizard", self.reset_clocks),
+            ('separator',),
+            ('cascade', "Time Format", [
+                ('command', "12-Hour (AM/PM)", lambda: self.change_format('12h')),
+                ('command', "24-Hour", lambda: self.change_format('24h')),
+            ]),
+            ('command', "Toggle Seconds", self.toggle_seconds),
+            ('cascade', "Translucency", [
+                ('command', f"{int(op * 100)}%",
+                 (lambda o=op: self.change_opacity(o)))
+                for op in OPACITY_LEVELS
+            ]),
+            ('cascade', "Themes", [
+                ('command', "Frosted Dark", lambda: self.change_theme('dark')),
+                ('command', "Frosted Light", lambda: self.change_theme('light')),
+                ('command', "Cyberpunk Neon", lambda: self.change_theme('cyberpunk')),
+                ('command', "Nordic Frost", lambda: self.change_theme('nordic')),
+            ]),
+            ('separator',),
+            ('command', "Exit App", self.on_exit),
+        ]
+
     def show_context_menu(self, event):
-        self.menu.entryconfig(
-            0, label="Resume Work Timer" if self.paused else "Pause Work Timer")
-        self.menu.post(event.x_root, event.y_root)
+        if self.context_popup is not None:
+            self.context_popup.close_all()
+        self.context_popup = PopupMenu(
+            self, self.context_menu_items(), event.x_root, event.y_root)
 
     def toggle_layout(self, event=None):
         self.settings['layout'] = 'vertical' if self.settings['layout'] == 'horizontal' else 'horizontal'
@@ -1222,7 +1354,6 @@ class WorldClockApp:
     def change_theme(self, theme_name):
         self.settings['theme'] = theme_name
         self.apply_transparency()
-        self.create_context_menu()  # restyle the menu with the new palette
         self.update_clocks()
         self.save_settings()
 
