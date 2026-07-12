@@ -588,6 +588,10 @@ class WorldClockApp:
         wizard.resizable(False, False)
         wizard.config(bg="#101014")
 
+        # Frameless: the native white title bar (and its Python icon) clashes
+        # with the dark body and cannot be recolored, so draw our own header
+        wizard.overrideredirect(True)
+
         # Keep wizard on top
         wizard.attributes('-topmost', True)
 
@@ -614,8 +618,48 @@ class WorldClockApp:
         wizard.option_add('*TCombobox*Listbox.selectBackground', '#6ea8ff')
         wizard.option_add('*TCombobox*Listbox.selectForeground', '#0b0b0e')
 
-        body = tk.Frame(wizard, bg="#101014")
-        body.pack(fill=tk.BOTH, expand=True, padx=28, pady=24)
+        outer = tk.Frame(wizard, bg="#101014",
+                         highlightthickness=1, highlightbackground="#2c2c30")
+        outer.pack(fill=tk.BOTH, expand=True)
+
+        # Custom header: accent dot + title on the left, close on the right;
+        # dragging the header moves the window (frameless windows can't)
+        header = tk.Frame(outer, bg="#101014")
+        header.pack(fill=tk.X)
+        dot = tk.Label(header, text="●", fg="#6ea8ff", bg="#101014",
+                       font=("Outfit", 9), padx=12, pady=8)
+        dot.pack(side=tk.LEFT)
+        title_lbl = tk.Label(header, text="World Clock Setup",
+                             fg="#8f8f96", bg="#101014",
+                             font=("Outfit", 9, "bold"), anchor="w")
+        title_lbl.pack(side=tk.LEFT)
+        close_lbl = tk.Label(header, text="✕", fg="#8f8f96", bg="#101014",
+                             font=("Outfit", 11), padx=14, pady=4,
+                             cursor="hand2")
+        close_lbl.pack(side=tk.RIGHT)
+        close_lbl.bind('<Button-1>', lambda e: sys.exit(0))
+        close_lbl.bind('<Enter>',
+                       lambda e: close_lbl.config(fg="#fafafa", bg="#3a3a40"))
+        close_lbl.bind('<Leave>',
+                       lambda e: close_lbl.config(fg="#8f8f96", bg="#101014"))
+
+        drag_off = {'x': 0, 'y': 0}
+
+        def header_press(e):
+            drag_off['x'] = e.x_root - wizard.winfo_x()
+            drag_off['y'] = e.y_root - wizard.winfo_y()
+
+        def header_move(e):
+            wizard.geometry(f"+{e.x_root - drag_off['x']}+{e.y_root - drag_off['y']}")
+
+        for widget in (header, dot, title_lbl):
+            widget.bind('<Button-1>', header_press)
+            widget.bind('<B1-Motion>', header_move)
+
+        wizard.bind('<Escape>', lambda e: sys.exit(0))
+
+        body = tk.Frame(outer, bg="#101014")
+        body.pack(fill=tk.BOTH, expand=True, padx=28, pady=(10, 24))
 
         # Title
         tk.Label(
