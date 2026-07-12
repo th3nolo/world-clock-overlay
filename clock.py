@@ -56,6 +56,9 @@ FLAG_MAP = {
     'America/Mexico_City': 'mexico',
 }
 
+# Supported translucency levels (right-click menu, tray menu, scroll wheel)
+OPACITY_LEVELS = [0.3, 0.5, 0.7, 0.85, 1.0]
+
 # Design Themes
 THEMES = {
     'dark': {
@@ -134,6 +137,7 @@ class WorldClockApp:
         self.session_start = datetime.now()
         self.start_work_session()
         self.db_save_counter = 0
+        self.stats_cache = None  # (month_str, unique_days, base_seconds)
 
         # If no clocks are configured (First run), show setup wizard
         if not self.settings.get('clocks'):
@@ -168,6 +172,11 @@ class WorldClockApp:
         self.canvas.bind('<B1-Motion>', self.do_drag)
         self.canvas.bind('<ButtonRelease-1>', self.stop_drag)
         self.root.bind('<Double-Button-1>', self.toggle_layout)
+
+        # Scroll wheel over the overlay steps translucency up/down
+        self.root.bind('<MouseWheel>', self.on_mouse_wheel)  # Windows / macOS
+        self.root.bind('<Button-4>', self.on_mouse_wheel)    # X11 scroll up
+        self.root.bind('<Button-5>', self.on_mouse_wheel)    # X11 scroll down
         
         # Create Right-Click Menu
         self.create_context_menu()
@@ -237,40 +246,43 @@ class WorldClockApp:
         except Exception as e:
             print("Failed to update database session:", e)
 
-    def get_monthly_stats(self):
+    def refresh_monthly_stats(self):
+        # Sum only PAST sessions: the live session row is excluded here and
+        # its seconds are added at display time, so it is never counted twice.
+        month_str = date.today().strftime("%Y-%m")
+        unique_days = set()
+        base_seconds = 0
         try:
-            today = date.today()
-            month_str = today.strftime("%Y-%m")
-            
             conn = sqlite3.connect(DB_FILE)
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT start_time, duration_seconds FROM work_sessions WHERE start_time LIKE ?",
-                (f"{month_str}%",)
+                "SELECT start_time, duration_seconds FROM work_sessions "
+                "WHERE start_time LIKE ? AND id != ?",
+                (f"{month_str}%", self.session_id if self.session_id is not None else -1)
             )
             sessions = cursor.fetchall()
             conn.close()
-            
-            unique_days = set()
-            total_seconds = 0
+
             for start_time_str, duration in sessions:
                 try:
-                    day = start_time_str.split('T')[0]
-                    unique_days.add(day)
-                    total_seconds += duration
+                    unique_days.add(start_time_str.split('T')[0])
+                    base_seconds += duration or 0
                 except Exception:
                     pass
-            
-            # Add current live session seconds to the stats
-            live_sec = int((datetime.now() - self.session_start).total_seconds())
-            total_seconds += live_sec
-            unique_days.add(today.isoformat())
-            
-            total_hours = total_seconds / 3600.0
-            return len(unique_days), total_hours
         except Exception as e:
             print("Failed to load monthly stats:", e)
-            return 0, 0.0
+        self.stats_cache = (month_str, unique_days, base_seconds)
+
+    def get_monthly_stats(self):
+        today = date.today()
+        if self.stats_cache is None or self.stats_cache[0] != today.strftime("%Y-%m"):
+            self.refresh_monthly_stats()
+        _, unique_days, base_seconds = self.stats_cache
+
+        live_sec = int((datetime.now() - self.session_start).total_seconds())
+        total_seconds = base_seconds + live_sec
+        day_count = len(unique_days | {today.isoformat()})
+        return day_count, total_seconds / 3600.0
 
     # ==========================================================================
     # First-Run Setup Wizard Window
@@ -598,6 +610,37 @@ class WorldClockApp:
         self.root.geometry(f"+{x}+{y}")
 
     # ==========================================================================
+    # Scroll Wheel Translucency Control
+    # ==========================================================================
+    def is_pointer_over_window(self):
+        px, py = self.root.winfo_pointerxy()
+        x = self.root.winfo_rootx()
+        y = self.root.winfo_rooty()
+        return (x <= px < x + self.root.winfo_width()
+                and y <= py < y + self.root.winfo_height())
+
+    def on_mouse_wheel(self, event):
+        # Wheel events can also arrive while the window has keyboard focus
+        # but the pointer is elsewhere; only react when hovering the overlay
+        if not self.is_pointer_over_window():
+            return
+        # Windows/macOS report event.delta; X11 reports Button-4/5 in event.num.
+        # The unused field holds the non-numeric placeholder '??', so type-check it.
+        delta = event.delta if isinstance(getattr(event, 'delta', None), int) else 0
+        num = getattr(event, 'num', None)
+        if num == 4 or delta > 0:
+            self.step_opacity(1)
+        elif num == 5 or delta < 0:
+            self.step_opacity(-1)
+
+    def step_opacity(self, direction):
+        current = self.settings['opacity']
+        idx = min(range(len(OPACITY_LEVELS)), key=lambda i: abs(OPACITY_LEVELS[i] - current))
+        idx = max(0, min(len(OPACITY_LEVELS) - 1, idx + direction))
+        if OPACITY_LEVELS[idx] != current:
+            self.change_opacity(OPACITY_LEVELS[idx])
+
+    # ==========================================================================
     # Rendering & Vector Flag Drawings
     # ==========================================================================
     def draw_rounded_rect(self, x1, y1, x2, y2, r, **kwargs):
@@ -883,7 +926,7 @@ class WorldClockApp:
 
         # Render Status Strip inside the panel (Session & Work Stats)
         elapsed_delta = datetime.now() - self.session_start
-        elapsed_hours, remainder = divmod(elapsed_delta.seconds, 3600)
+        elapsed_hours, remainder = divmod(int(elapsed_delta.total_seconds()), 3600)
         elapsed_minutes, elapsed_seconds = divmod(remainder, 60)
         elapsed_str = f"{elapsed_hours:02d}:{elapsed_minutes:02d}:{elapsed_seconds:02d}"
 
@@ -938,7 +981,7 @@ class WorldClockApp:
         self.menu.add_command(label="Toggle Seconds", command=self.toggle_seconds)
         
         opacity_menu = tk.Menu(self.menu, tearoff=0, bg='#1c1c1e', fg='white', activebackground='#3a86ff')
-        for op in [0.3, 0.5, 0.7, 0.85, 1.0]:
+        for op in OPACITY_LEVELS:
             opacity_menu.add_command(
                 label=f"{int(op*100)}%", 
                 command=lambda o=op: self.change_opacity(o)
@@ -1018,6 +1061,10 @@ class WorldClockApp:
             
         def on_change_opacity(icon, item, val):
             self.root.after(0, lambda: self.change_opacity(val))
+
+        # pystray requires two-parameter actions, so bind the value via a factory
+        def opacity_item(op):
+            return item(f"{int(op * 100)}%", lambda icon, item: on_change_opacity(icon, item, op))
             
         def on_exit(icon, item):
             icon.stop()
@@ -1032,11 +1079,7 @@ class WorldClockApp:
                 item('24-Hour', lambda icon, item: on_change_format(icon, item, '24h'))
             )),
             item('Translucency', pystray.Menu(
-                item('30%', lambda icon, item: on_change_opacity(icon, item, 0.3)),
-                item('50%', lambda icon, item: on_change_opacity(icon, item, 0.5)),
-                item('70%', lambda icon, item: on_change_opacity(icon, item, 0.7)),
-                item('85%', lambda icon, item: on_change_opacity(icon, item, 0.85)),
-                item('100%', lambda icon, item: on_change_opacity(icon, item, 1.0))
+                *[opacity_item(op) for op in OPACITY_LEVELS]
             )),
             item('Themes', pystray.Menu(
                 item('Frosted Dark', lambda icon, item: on_change_theme(icon, item, 'dark')),

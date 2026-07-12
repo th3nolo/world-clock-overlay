@@ -14,7 +14,7 @@ A Python desktop overlay, built with Tkinter, that shows your local time and up 
 - **Work tracker**: each run of the overlay is recorded as a work session (start, end, duration) in `~/.world_clock_work_tracker.db`.
 - **Status bar**: a live stopwatch for the current session, plus days worked and total hours in the current month.
 - **Four themes**: Frosted Dark, Frosted Light, Cyberpunk Neon, and Nordic Frost.
-- **Translucency**: set the overlay between 30% and 100% opacity from the right-click menu.
+- **Translucency**: set the overlay between 30% and 100% opacity from the right-click menu, or scroll the mouse wheel while hovering the overlay.
 - **Click-through (Windows)**: clicks on the empty background pass through to the window underneath.
 - **Corner anchoring**: when the layout toggles, the window keeps its nearest screen corner instead of drifting.
 - **Drag feedback**: the overlay dims to 30% opacity while being dragged.
@@ -62,6 +62,7 @@ The script installs Pillow and pystray if they are missing, then launches `pytho
 
 - **Move**: click and drag anywhere on the overlay.
 - **Toggle layout**: double-click to switch between horizontal and vertical.
+- **Translucency**: scroll the mouse wheel while hovering the overlay (steps through 30/50/70/85/100%).
 - **Options**: right-click the overlay (or the tray icon) for time format, seconds, translucency, themes, and "Reset Clocks Setup Wizard".
 
 ## Tests
@@ -69,4 +70,9 @@ The script installs Pillow and pystray if they are missing, then launches `pytho
 The layout tests check that labels and icons do not overlap:
 ```bash
 python3 test_layout.py
+```
+
+The wheel/stats tests check scroll-wheel translucency stepping and work-hour accounting (uses an isolated profile, never touches your real config or database):
+```bash
+python3 test_wheel_stats.py
 ```
