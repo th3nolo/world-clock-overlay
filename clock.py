@@ -1130,39 +1130,63 @@ class WorldClockApp:
     # ==========================================================================
     # Context Menu & Tray Actions
     # ==========================================================================
+    def contrast_text(self, hex_color):
+        # Black or white, whichever reads better on the given color
+        r = int(hex_color[1:3], 16)
+        g = int(hex_color[3:5], 16)
+        b = int(hex_color[5:7], 16)
+        return '#101014' if (0.299 * r + 0.587 * g + 0.114 * b) > 150 else '#ffffff'
+
+    def menu_style(self):
+        # Contextual menus reuse the panel palette so they read as part of
+        # the overlay instead of a stock system menu
+        theme = self.get_theme()
+        return dict(
+            tearoff=0,
+            bg=theme['card_bg'],
+            fg=theme['text_muted'],
+            activebackground=theme['accent'],
+            activeforeground=self.contrast_text(theme['accent']),
+            activeborderwidth=0,
+            borderwidth=0,
+            relief='flat',
+            font=('Outfit', 9)
+        )
+
     def create_context_menu(self):
-        self.menu = tk.Menu(self.root, tearoff=0, bg='#1c1c1e', fg='white', activebackground='#3a86ff')
-        
+        style = self.menu_style()
+        self.menu = tk.Menu(self.root, **style)
+
         self.menu.add_command(label="Pause Work Timer", command=self.toggle_pause)
         self.menu.add_command(label="Toggle Layout (Double-Click)", command=self.toggle_layout)
         self.menu.add_command(label="Reset Clocks Setup Wizard", command=self.reset_clocks)
         self.menu.add_separator()
-        
-        format_menu = tk.Menu(self.menu, tearoff=0, bg='#1c1c1e', fg='white', activebackground='#3a86ff')
+
+        format_menu = tk.Menu(self.menu, **style)
         format_menu.add_command(label="12-Hour (AM/PM)", command=lambda: self.change_format('12h'))
         format_menu.add_command(label="24-Hour", command=lambda: self.change_format('24h'))
         self.menu.add_cascade(label="Time Format", menu=format_menu)
-        
+
         self.menu.add_command(label="Toggle Seconds", command=self.toggle_seconds)
-        
-        opacity_menu = tk.Menu(self.menu, tearoff=0, bg='#1c1c1e', fg='white', activebackground='#3a86ff')
+
+        opacity_menu = tk.Menu(self.menu, **style)
         for op in OPACITY_LEVELS:
             opacity_menu.add_command(
-                label=f"{int(op*100)}%", 
+                label=f"{int(op*100)}%",
                 command=lambda o=op: self.change_opacity(o)
             )
         self.menu.add_cascade(label="Translucency", menu=opacity_menu)
-        
-        theme_menu = tk.Menu(self.menu, tearoff=0, bg='#1c1c1e', fg='white', activebackground='#3a86ff')
+
+        theme_menu = tk.Menu(self.menu, **style)
         theme_menu.add_command(label="Frosted Dark", command=lambda: self.change_theme('dark'))
         theme_menu.add_command(label="Frosted Light", command=lambda: self.change_theme('light'))
         theme_menu.add_command(label="Cyberpunk Neon", command=lambda: self.change_theme('cyberpunk'))
         theme_menu.add_command(label="Nordic Frost", command=lambda: self.change_theme('nordic'))
         self.menu.add_cascade(label="Themes", menu=theme_menu)
-        
+
         self.menu.add_separator()
         self.menu.add_command(label="Exit App", command=self.on_exit)
-        
+
         if platform.system() == 'Darwin':
             self.canvas.bind('<Button-2>', self.show_context_menu)
         else:
@@ -1198,6 +1222,7 @@ class WorldClockApp:
     def change_theme(self, theme_name):
         self.settings['theme'] = theme_name
         self.apply_transparency()
+        self.create_context_menu()  # restyle the menu with the new palette
         self.update_clocks()
         self.save_settings()
 
