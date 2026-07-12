@@ -12,7 +12,9 @@ A Python desktop overlay, built with Tkinter, that shows your local time and up 
 - **Two layouts**: horizontal columns or a vertical stack; double-click the overlay to switch.
 - **Setup wizard**: on first launch, pick the timezones to display.
 - **Work tracker**: each run of the overlay is recorded as a work session (start, end, duration) in `~/.world_clock_work_tracker.db`.
-- **Status bar**: a live stopwatch for the current session, plus days worked and total hours in the current month.
+- **Status bar**: a live stopwatch for the current session, plus today's hours and the days worked and total hours in the current month. Sessions are clipped at midnight, so one day can never show more than 24 hours.
+- **Pause tracking**: click the ⏱ timer, or hover the overlay and hold Space for half a second — the divider line fills from both edges to the center, and when the halves meet the timer pauses. Paused time is never written to the database; the same gesture resumes.
+- **Themed context menu**: the right-click menu is drawn with the active theme (panel colors, border, hover accent) instead of the native white system menu, and restyles instantly when you switch themes.
 - **Four themes**: Frosted Dark, Frosted Light, Cyberpunk Neon, and Nordic Frost.
 - **Translucency**: set the overlay between 30% and 100% opacity from the right-click menu, or scroll the mouse wheel while hovering the overlay.
 - **Readable on light backgrounds**: secondary text (labels, dates, status bar) is near-white — near-black in the light theme — and every text is drawn with a 1px contrast shadow, so the translucent overlay stays legible over white windows.
@@ -38,6 +40,38 @@ A Python desktop overlay, built with Tkinter, that shows your local time and up 
 
 ![Setup wizard](screenshots/setup-wizard.png)
 
+## Demos
+
+### Pause with the space bar
+
+Hover the overlay and hold Space: the divider fills from both edges with easing; when the halves meet (0.5 s), tracking pauses. Hold again to resume.
+
+![Hold Space to pause](screenshots/pause-hold-space.gif)
+
+### Pause with a click
+
+Click the ⏱ timer text in the status strip to pause and resume.
+
+![Click the timer to pause](screenshots/pause-click.gif)
+
+### Scroll-wheel translucency
+
+Scroll the mouse wheel while hovering the overlay to step the opacity between 30% and 100%.
+
+![Scroll wheel translucency](screenshots/wheel-translucency.gif)
+
+### Themed context menu
+
+The right-click menu uses the active theme and restyles the moment you pick a new one.
+
+![Context menu follows the theme](screenshots/context-menu-themes.gif)
+
+### Layout toggle
+
+Double-click the overlay to switch between horizontal and vertical layouts; the window keeps its nearest screen corner.
+
+![Double-click toggles layout](screenshots/layout-toggle.gif)
+
 ## Running the Application
 
 ### Windows host
@@ -62,6 +96,7 @@ The script installs Pillow and pystray if they are missing, then launches `pytho
 ## Controls
 
 - **Move**: click and drag anywhere on the overlay.
+- **Pause/resume the work timer**: click the ⏱ timer text, or hold Space for 0.5 s while hovering the overlay.
 - **Toggle layout**: double-click to switch between horizontal and vertical.
 - **Translucency**: scroll the mouse wheel while hovering the overlay (steps through 30/50/70/85/100%).
 - **Options**: right-click the overlay (or the tray icon) for time format, seconds, translucency, themes, and "Reset Clocks Setup Wizard".
