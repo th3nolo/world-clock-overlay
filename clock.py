@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import time
 import platform
 import sqlite3
 import threading
@@ -12,6 +13,11 @@ from tkinter import messagebox, ttk
 # Configuration paths
 CONFIG_FILE = os.path.join(os.path.expanduser('~'), '.world_clock_overlay.json')
 DB_FILE = os.path.join(os.path.expanduser('~'), '.world_clock_work_tracker.db')
+
+# Space must be HELD this long over the overlay to pause/resume. Typing in
+# another app taps space for ~0.1s; the key state is global, so a quick tap
+# must never count even when the pointer is parked over the overlay.
+PAUSE_HOLD_SEC = 0.4
 
 # Curated list of common timezones for the setup wizard dropdown
 COMMON_ZONES = [
@@ -146,7 +152,11 @@ class WorldClockApp:
         self.session_start = datetime.now()
         self.start_work_session()
         self.db_save_counter = 0
-        self.stats_cache = None  # (month_str, unique_days, base_seconds)
+        self.paused = False
+        self.paused_elapsed_str = "00:00:00"
+        self.space_hold_start = None
+        self.space_toggled = False
+        self.stats_cache = None  # (month, today, unique_days, base_seconds, today_seconds)
 
         # If no clocks are configured (First run), show setup wizard
         if not self.settings.get('clocks'):
@@ -186,7 +196,12 @@ class WorldClockApp:
         self.root.bind('<MouseWheel>', self.on_mouse_wheel)  # Windows / macOS
         self.root.bind('<Button-4>', self.on_mouse_wheel)    # X11 scroll up
         self.root.bind('<Button-5>', self.on_mouse_wheel)    # X11 scroll down
-        
+
+        # The work timer in the status strip is the pause/resume button
+        self.canvas.tag_bind('pause_btn', '<ButtonRelease-1>', self.on_pause_release)
+        self.canvas.tag_bind('pause_btn', '<Enter>', lambda e: self.canvas.config(cursor='hand2'))
+        self.canvas.tag_bind('pause_btn', '<Leave>', lambda e: self.canvas.config(cursor=''))
+
         # Create Right-Click Menu
         self.create_context_menu()
         
@@ -195,7 +210,10 @@ class WorldClockApp:
         
         # Start updates
         self.update_clocks()
-        
+
+        # Space over the overlay pauses/resumes the work timer
+        self.poll_pause_hotkey()
+
         # Start System Tray Icon
         if HAS_TRAY:
             self.tray_thread = threading.Thread(target=self.start_tray_icon, daemon=True)
@@ -258,40 +276,115 @@ class WorldClockApp:
     def refresh_monthly_stats(self):
         # Sum only PAST sessions: the live session row is excluded here and
         # its seconds are added at display time, so it is never counted twice.
+        # Each session is clipped to today's [00:00, 24:00) for the today
+        # total, so an overnight session can never push one day past 24h.
         month_str = date.today().strftime("%Y-%m")
+        today_str = date.today().isoformat()
+        day_start = datetime.combine(date.today(), datetime.min.time())
+        day_end = day_start + timedelta(days=1)
         unique_days = set()
         base_seconds = 0
+        today_seconds = 0
         try:
             conn = sqlite3.connect(DB_FILE)
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT start_time, duration_seconds FROM work_sessions "
+                "SELECT start_time, end_time, duration_seconds FROM work_sessions "
                 "WHERE start_time LIKE ? AND id != ?",
                 (f"{month_str}%", self.session_id if self.session_id is not None else -1)
             )
             sessions = cursor.fetchall()
             conn.close()
 
-            for start_time_str, duration in sessions:
+            for start_str, end_str, duration in sessions:
                 try:
-                    unique_days.add(start_time_str.split('T')[0])
+                    unique_days.add(start_str.split('T')[0])
                     base_seconds += duration or 0
+                    start_dt = datetime.fromisoformat(start_str)
+                    end_dt = (datetime.fromisoformat(end_str) if end_str
+                              else start_dt + timedelta(seconds=duration or 0))
+                    overlap = min(end_dt, day_end) - max(start_dt, day_start)
+                    today_seconds += max(0, int(overlap.total_seconds()))
                 except Exception:
                     pass
         except Exception as e:
             print("Failed to load monthly stats:", e)
-        self.stats_cache = (month_str, unique_days, base_seconds)
+        self.stats_cache = (month_str, today_str, unique_days, base_seconds, today_seconds)
 
     def get_monthly_stats(self):
         today = date.today()
-        if self.stats_cache is None or self.stats_cache[0] != today.strftime("%Y-%m"):
+        if (self.stats_cache is None
+                or self.stats_cache[0] != today.strftime("%Y-%m")
+                or self.stats_cache[1] != today.isoformat()):
             self.refresh_monthly_stats()
-        _, unique_days, base_seconds = self.stats_cache
+        _, _, unique_days, base_seconds, today_base = self.stats_cache
 
-        live_sec = int((datetime.now() - self.session_start).total_seconds())
-        total_seconds = base_seconds + live_sec
-        day_count = len(unique_days | {today.isoformat()})
-        return day_count, total_seconds / 3600.0
+        live_sec = 0
+        live_today = 0
+        if not self.paused:
+            now = datetime.now()
+            day_start = datetime.combine(today, datetime.min.time())
+            live_sec = int((now - self.session_start).total_seconds())
+            live_today = int((now - max(self.session_start, day_start)).total_seconds())
+
+        days = set(unique_days)
+        # While paused, today only counts as a worked day if work was logged
+        if not self.paused or today_base > 0:
+            days.add(today.isoformat())
+        total_hours = (base_seconds + live_sec) / 3600.0
+        today_hours = (today_base + live_today) / 3600.0
+        return len(days), total_hours, today_hours
+
+    def toggle_pause(self):
+        if self.paused:
+            self.resume_work()
+        else:
+            self.pause_work()
+
+    def pause_work(self):
+        # Close the live session row; paused time never lands in the DB
+        self.update_work_session()
+        elapsed = int((datetime.now() - self.session_start).total_seconds())
+        h, rem = divmod(elapsed, 3600)
+        m, s = divmod(rem, 60)
+        self.paused_elapsed_str = f"{h:02d}:{m:02d}:{s:02d}"
+        self.session_id = None
+        self.paused = True
+        self.refresh_monthly_stats()  # the closed session now counts as past
+
+    def resume_work(self):
+        self.session_start = datetime.now()
+        self.start_work_session()
+        self.paused = False
+
+    def on_pause_release(self, event):
+        # The canvas-wide drag handler sees the same press; only toggle on a
+        # motionless click so dragging from the timer doesn't flip the state
+        if (abs(event.x - self.drag_start_x) < 4
+                and abs(event.y - self.drag_start_y) < 4):
+            self.toggle_pause()
+
+    def is_space_down(self):
+        # The frameless overlay never receives keyboard focus, so a normal
+        # <space> binding would never fire; read the async key state instead
+        try:
+            import ctypes
+            return bool(ctypes.windll.user32.GetAsyncKeyState(0x20) & 0x8000)
+        except Exception:
+            return False
+
+    def poll_pause_hotkey(self):
+        if self.is_space_down() and self.is_pointer_over_window():
+            if self.space_hold_start is None:
+                self.space_hold_start = time.monotonic()
+            elif (not self.space_toggled
+                  and time.monotonic() - self.space_hold_start >= PAUSE_HOLD_SEC):
+                self.toggle_pause()
+                self.space_toggled = True  # one toggle per hold
+        else:
+            self.space_hold_start = None
+            self.space_toggled = False
+        self.root.after(50, self.poll_pause_hotkey)
 
     # ==========================================================================
     # First-Run Setup Wizard Window
@@ -567,7 +660,7 @@ class WorldClockApp:
             h = 132  # Panel: clock columns + status strip
         else:
             w = 200
-            h = N * 72 + 58  # Panel: clock rows + two-line status strip
+            h = N * 72 + 72  # Panel: clock rows + three-line status strip
         return w, h
 
     def apply_layout_size(self):
@@ -799,8 +892,8 @@ class WorldClockApp:
         # Single rounded panel holding all clocks + the status strip
         panel_x1, panel_y1 = 10, 10
         panel_x2, panel_y2 = w - 10, h - 10
-        # The narrow vertical window stacks the status into two lines
-        status_h = 24 if layout == 'horizontal' else 38
+        # The narrow vertical window stacks the status into three lines
+        status_h = 24 if layout == 'horizontal' else 52
         status_sep_y = panel_y2 - status_h
 
         self.draw_rounded_rect(
@@ -941,37 +1034,61 @@ class WorldClockApp:
                 anchor='w'
             )
 
-        # Render Status Strip inside the panel (Session & Work Stats)
-        elapsed_delta = datetime.now() - self.session_start
-        elapsed_hours, remainder = divmod(int(elapsed_delta.total_seconds()), 3600)
-        elapsed_minutes, elapsed_seconds = divmod(remainder, 60)
-        elapsed_str = f"{elapsed_hours:02d}:{elapsed_minutes:02d}:{elapsed_seconds:02d}"
+        # Render Status Strip inside the panel (Session & Work Stats).
+        # The timer text doubles as the pause/resume button (tag 'pause_btn').
+        if self.paused:
+            timer_text = f"⏸ Paused {self.paused_elapsed_str}"
+            timer_fill = theme['accent']
+        else:
+            elapsed_delta = datetime.now() - self.session_start
+            elapsed_hours, remainder = divmod(int(elapsed_delta.total_seconds()), 3600)
+            elapsed_minutes, elapsed_seconds = divmod(remainder, 60)
+            timer_text = f"⏱ Work {elapsed_hours:02d}:{elapsed_minutes:02d}:{elapsed_seconds:02d}"
+            timer_fill = theme['text_faded']
 
         # Fetch monthly statistics
-        days_worked, hours_worked = self.get_monthly_stats()
+        days_worked, hours_worked, hours_today = self.get_monthly_stats()
         current_month = datetime.now().strftime("%B")
         days_label = "day" if days_worked == 1 else "days"
+        today_part = f"Today {hours_today:.1f} hrs"
         month_part = f"{current_month}: {days_worked} {days_label}  ·  {hours_worked:.1f} hrs"
         status_font = ('Outfit', 8, 'bold')
 
         if layout == 'horizontal':
+            # Timer (pause button) on the left, day/month stats on the right
             self.draw_text(
-                w / 2, status_sep_y + status_h / 2,
-                text=f"⏱ Work {elapsed_str}  ·  {month_part}",
+                panel_x1 + 16, status_sep_y + status_h / 2,
+                text=timer_text,
+                fill=timer_fill,
+                font=status_font,
+                anchor='w',
+                tags='pause_btn'
+            )
+            self.draw_text(
+                panel_x2 - 16, status_sep_y + status_h / 2,
+                text=f"{today_part}  ·  {month_part}",
                 fill=theme['text_faded'],
                 font=status_font,
-                anchor='center'
+                anchor='e'
             )
         else:
             self.draw_text(
                 w / 2, status_sep_y + 12,
-                text=f"⏱ Work {elapsed_str}",
+                text=timer_text,
+                fill=timer_fill,
+                font=status_font,
+                anchor='center',
+                tags='pause_btn'
+            )
+            self.draw_text(
+                w / 2, status_sep_y + 26,
+                text=today_part,
                 fill=theme['text_faded'],
                 font=status_font,
                 anchor='center'
             )
             self.draw_text(
-                w / 2, status_sep_y + 26,
+                w / 2, status_sep_y + 40,
                 text=month_part,
                 fill=theme['text_faded'],
                 font=status_font,
@@ -986,6 +1103,7 @@ class WorldClockApp:
     def create_context_menu(self):
         self.menu = tk.Menu(self.root, tearoff=0, bg='#1c1c1e', fg='white', activebackground='#3a86ff')
         
+        self.menu.add_command(label="Pause Work Timer", command=self.toggle_pause)
         self.menu.add_command(label="Toggle Layout (Double-Click)", command=self.toggle_layout)
         self.menu.add_command(label="Reset Clocks Setup Wizard", command=self.reset_clocks)
         self.menu.add_separator()
@@ -1021,6 +1139,8 @@ class WorldClockApp:
             self.canvas.bind('<Button-3>', self.show_context_menu)
 
     def show_context_menu(self, event):
+        self.menu.entryconfig(
+            0, label="Resume Work Timer" if self.paused else "Pause Work Timer")
         self.menu.post(event.x_root, event.y_root)
 
     def toggle_layout(self, event=None):
@@ -1079,6 +1199,9 @@ class WorldClockApp:
         def on_change_opacity(icon, item, val):
             self.root.after(0, lambda: self.change_opacity(val))
 
+        def on_toggle_pause(icon, item):
+            self.root.after(0, self.toggle_pause)
+
         # pystray requires two-parameter actions, so bind the value via a factory
         def opacity_item(op):
             return item(f"{int(op * 100)}%", lambda icon, item: on_change_opacity(icon, item, op))
@@ -1088,6 +1211,8 @@ class WorldClockApp:
             self.root.after(0, self.on_exit)
 
         menu = pystray.Menu(
+            item(lambda text: 'Resume Work Timer' if self.paused else 'Pause Work Timer',
+                 on_toggle_pause),
             item('Toggle Layout', on_toggle_layout),
             item('Toggle Seconds', on_toggle_seconds),
             pystray.Menu.SEPARATOR,

@@ -9,6 +9,7 @@ that has Tkinter (e.g. Windows Python from WSL):
 import os
 import sys
 import json
+import time
 import shutil
 import sqlite3
 import tempfile
@@ -83,11 +84,94 @@ def run_tests(app):
     app.update_work_session()   # 60s autosave writes the live 1h into its DB row
     app.stats_cache = None      # force re-read of the DB
 
-    days, hours = app.get_monthly_stats()
+    days, hours, today_hours = app.get_monthly_stats()
     # Correct: 2h past + 1h live = 3h. The old code returned 4h here
     # (past 2h + saved live row 1h + live 1h again).
     check('monthly hours = 3.0, live session counted once', abs(hours - 3.0) < 0.02)
     check('unique days = 2 (past day + today)', days == 2)
+    # The live 1h session started today, so it lands in the today total.
+    # The 2h past session on the 1st only counts if today IS the 1st.
+    expected_today = 3.0 if datetime.now().day == 1 else 1.0
+    check(f'today hours = {expected_today}', abs(today_hours - expected_today) < 0.02)
+
+    # --- Today clipping: overnight session counts only its today portion ---
+    # (skipped on the 1st: yesterday belongs to the previous month there)
+    if datetime.now().day != 1:
+        day_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        conn = sqlite3.connect(clock.DB_FILE)
+        conn.execute(
+            "INSERT INTO work_sessions (start_time, end_time, duration_seconds) VALUES (?, ?, ?)",
+            ((day_start - timedelta(hours=2)).isoformat(),
+             (day_start + timedelta(hours=1)).isoformat(), 10800)  # 22:00 -> 01:00
+        )
+        conn.commit()
+        conn.close()
+        app.stats_cache = None
+        days, hours, today_hours = app.get_monthly_stats()
+        check('overnight session adds 3h to the month total', abs(hours - 6.0) < 0.02)
+        check('but only its 1h after midnight to today',
+              abs(today_hours - (expected_today + 1.0)) < 0.02)
+
+    # --- Pause/resume: paused time never lands in the DB or the totals ---
+    app.toggle_pause()
+    check('pause sets the flag and closes the session',
+          app.paused and app.session_id is None)
+    conn = sqlite3.connect(clock.DB_FILE)
+    open_rows = conn.execute(
+        "SELECT COUNT(*) FROM work_sessions WHERE end_time IS NULL").fetchone()[0]
+    conn.close()
+    check('no open session rows while paused', open_rows == 0)
+    _, hours_paused, _ = app.get_monthly_stats()
+    check('totals frozen while paused', abs(hours_paused - hours) < 0.02)
+
+    app.toggle_pause()
+    check('resume opens a new live session',
+          not app.paused and app.session_id is not None)
+    _, hours_resumed, _ = app.get_monthly_stats()
+    check('resume continues from the frozen total', abs(hours_resumed - hours) < 0.02)
+
+    # --- Space HELD over the overlay toggles pause; quick taps never do ---
+    app.is_pointer_over_window = lambda: True
+    clock.PAUSE_HOLD_SEC = 0.05  # shrink the hold threshold for the test
+
+    app.is_space_down = lambda: True
+    app.poll_pause_hotkey()   # hold starts
+    check('press alone does not toggle yet', not app.paused)
+    time.sleep(0.1)
+    app.poll_pause_hotkey()   # threshold reached
+    check('held space over overlay pauses', app.paused)
+    time.sleep(0.1)
+    app.poll_pause_hotkey()
+    check('keeping it held does not toggle again', app.paused)
+
+    app.is_space_down = lambda: False
+    app.poll_pause_hotkey()   # release
+    app.is_space_down = lambda: True
+    app.poll_pause_hotkey()
+    time.sleep(0.1)
+    app.poll_pause_hotkey()
+    check('release then hold again resumes', not app.paused)
+    app.is_space_down = lambda: False
+    app.poll_pause_hotkey()
+
+    clock.PAUSE_HOLD_SEC = 0.4  # realistic threshold: a typing tap is ~0.1s
+    app.is_space_down = lambda: True
+    app.poll_pause_hotkey()
+    time.sleep(0.1)
+    app.poll_pause_hotkey()
+    app.is_space_down = lambda: False
+    app.poll_pause_hotkey()
+    check('quick tap (typing) never toggles', not app.paused)
+
+    clock.PAUSE_HOLD_SEC = 0.05
+    app.is_pointer_over_window = lambda: False
+    app.is_space_down = lambda: True
+    app.poll_pause_hotkey()
+    time.sleep(0.1)
+    app.poll_pause_hotkey()
+    check('held space away from the overlay does nothing', not app.paused)
+    app.is_space_down = lambda: False
+    clock.PAUSE_HOLD_SEC = 0.4
 
     # --- Text shadow: draw_text paints a shadow copy behind the text ---
     before = len(app.canvas.find_all())
