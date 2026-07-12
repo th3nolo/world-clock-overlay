@@ -305,6 +305,9 @@ class WorldClockApp:
         self.paused_elapsed_str = "00:00:00"
         self.space_hold_start = None
         self.space_toggled = False
+        self.pause_btn_bbox = None  # screen hit-area of the timer text
+        self.press_on_pause = False
+        self.drag_moved = False
         self.stats_cache = None  # (month, today, unique_days, base_seconds, today_seconds)
 
         # If no clocks are configured (First run), show setup wizard
@@ -346,10 +349,10 @@ class WorldClockApp:
         self.root.bind('<Button-4>', self.on_mouse_wheel)    # X11 scroll up
         self.root.bind('<Button-5>', self.on_mouse_wheel)    # X11 scroll down
 
-        # The work timer in the status strip is the pause/resume button
-        self.canvas.tag_bind('pause_btn', '<ButtonRelease-1>', self.on_pause_release)
-        self.canvas.tag_bind('pause_btn', '<Enter>', lambda e: self.canvas.config(cursor='hand2'))
-        self.canvas.tag_bind('pause_btn', '<Leave>', lambda e: self.canvas.config(cursor=''))
+        # Pause-button clicks are hit-tested by coordinates in stop_drag:
+        # canvas item events are unreliable here because the 200ms redraw
+        # deletes and recreates every item, dropping mid-click events
+        self.canvas.bind('<Motion>', self.on_canvas_motion)
 
         # Create Right-Click Menu
         self.create_context_menu()
@@ -357,10 +360,14 @@ class WorldClockApp:
         # Place window
         self.restore_position()
         
-        # Start updates
-        self.update_clocks()
+        # Start updates (force_redraw cancels any pending tick, so re-entering
+        # setup via the wizard never leaves a duplicate redraw loop behind)
+        self.force_redraw()
 
-        # Space over the overlay pauses/resumes the work timer
+        # Space over the overlay pauses/resumes the work timer (cancel any
+        # pending poll first for the same wizard re-entry reason)
+        if getattr(self, '_poll_after', None) is not None:
+            self.root.after_cancel(self._poll_after)
         self.poll_pause_hotkey()
 
         # Start System Tray Icon
@@ -489,6 +496,7 @@ class WorldClockApp:
             self.resume_work()
         else:
             self.pause_work()
+        self.force_redraw()  # show the new state now, not at the next tick
 
     def pause_work(self):
         # Close the live session row; paused time never lands in the DB
@@ -506,12 +514,19 @@ class WorldClockApp:
         self.start_work_session()
         self.paused = False
 
-    def on_pause_release(self, event):
-        # The canvas-wide drag handler sees the same press; only toggle on a
-        # motionless click so dragging from the timer doesn't flip the state
-        if (abs(event.x - self.drag_start_x) < 4
-                and abs(event.y - self.drag_start_y) < 4):
-            self.toggle_pause()
+    def is_over_pause_btn(self, x, y):
+        b = self.pause_btn_bbox
+        return b is not None and b[0] <= x <= b[2] and b[1] <= y <= b[3]
+
+    def on_canvas_motion(self, event):
+        self.canvas.config(
+            cursor='hand2' if self.is_over_pause_btn(event.x, event.y) else '')
+
+    def force_redraw(self):
+        # Repaint immediately instead of waiting out the 200ms tick
+        if getattr(self, '_redraw_after', None) is not None:
+            self.root.after_cancel(self._redraw_after)
+        self.update_clocks()
 
     def is_space_down(self):
         # The frameless overlay never receives keyboard focus, so a normal
@@ -536,7 +551,7 @@ class WorldClockApp:
         self.draw_hold_bar()
         # Animate at ~60fps during a hold, sample lazily otherwise
         interval = 16 if self.space_hold_start is not None else 50
-        self.root.after(interval, self.poll_pause_hotkey)
+        self._poll_after = self.root.after(interval, self.poll_pause_hotkey)
 
     def draw_hold_bar(self):
         # Hold-to-pause progress: the status divider fills from both edges
@@ -876,13 +891,28 @@ class WorldClockApp:
     def start_drag(self, event):
         self.drag_start_x = event.x
         self.drag_start_y = event.y
-        # Drop opacity to 30% to visually indicate moving action
-        self.root.attributes('-alpha', 0.3)
+        self.drag_moved = False
+        self.press_on_pause = self.is_over_pause_btn(event.x, event.y)
+        if not self.press_on_pause:
+            # Drop opacity to 30% to visually indicate moving action
+            self.root.attributes('-alpha', 0.3)
 
     def stop_drag(self, event):
         self.apply_transparency()
+        if self.press_on_pause and not self.drag_moved:
+            self.toggle_pause()
+        self.press_on_pause = False
 
     def do_drag(self, event):
+        if (not self.drag_moved
+                and abs(event.x - self.drag_start_x) < 4
+                and abs(event.y - self.drag_start_y) < 4):
+            return  # jitter guard: a click on the pause button is not a drag
+        if self.press_on_pause:
+            # Turned into a real drag after all — behave like one
+            self.press_on_pause = False
+            self.root.attributes('-alpha', 0.3)
+        self.drag_moved = True
         x = self.root.winfo_x() + (event.x - self.drag_start_x)
         y = self.root.winfo_y() + (event.y - self.drag_start_y)
         w, h = self.get_window_size()
@@ -1234,13 +1264,12 @@ class WorldClockApp:
 
         if layout == 'horizontal':
             # Timer (pause button) on the left, day/month stats on the right
-            self.draw_text(
+            timer_id = self.draw_text(
                 panel_x1 + 16, status_sep_y + status_h / 2,
                 text=timer_text,
                 fill=timer_fill,
                 font=status_font,
-                anchor='w',
-                tags='pause_btn'
+                anchor='w'
             )
             self.draw_text(
                 panel_x2 - 16, status_sep_y + status_h / 2,
@@ -1250,13 +1279,12 @@ class WorldClockApp:
                 anchor='e'
             )
         else:
-            self.draw_text(
+            timer_id = self.draw_text(
                 w / 2, status_sep_y + 12,
                 text=timer_text,
                 fill=timer_fill,
                 font=status_font,
-                anchor='center',
-                tags='pause_btn'
+                anchor='center'
             )
             self.draw_text(
                 w / 2, status_sep_y + 26,
@@ -1273,8 +1301,12 @@ class WorldClockApp:
                 anchor='center'
             )
 
+        # Generous hit padding: the timer text is small, the target shouldn't be
+        tb = self.canvas.bbox(timer_id)
+        self.pause_btn_bbox = (tb[0] - 10, tb[1] - 8, tb[2] + 10, tb[3] + 8)
+
         self.draw_hold_bar()
-        self.root.after(200, self.update_clocks)
+        self._redraw_after = self.root.after(200, self.update_clocks)
 
     # ==========================================================================
     # Context Menu & Tray Actions
@@ -1332,18 +1364,18 @@ class WorldClockApp:
     def toggle_layout(self, event=None):
         self.settings['layout'] = 'vertical' if self.settings['layout'] == 'horizontal' else 'horizontal'
         self.apply_layout_size()
-        self.update_clocks()
+        self.force_redraw()
         self.save_settings()
 
     def change_format(self, fmt):
         self.settings['format'] = fmt
-        self.update_clocks()
+        self.force_redraw()
         self.save_settings()
 
     def toggle_seconds(self):
         self.settings['show_seconds'] = not self.settings['show_seconds']
         self.apply_layout_size()
-        self.update_clocks()
+        self.force_redraw()
         self.save_settings()
 
     def change_opacity(self, opacity):
@@ -1354,7 +1386,7 @@ class WorldClockApp:
     def change_theme(self, theme_name):
         self.settings['theme'] = theme_name
         self.apply_transparency()
-        self.update_clocks()
+        self.force_redraw()
         self.save_settings()
 
     def reset_clocks(self):

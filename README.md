@@ -108,7 +108,7 @@ The layout tests check that labels and icons do not overlap:
 python3 test_layout.py
 ```
 
-The wheel/stats tests check scroll-wheel translucency stepping and work-hour accounting (uses an isolated profile, never touches your real config or database):
+The behavior tests check scroll-wheel translucency stepping, work-hour accounting (including midnight clipping), pause/resume by click and by held Space, the hold progress bar, and the themed context menu (uses an isolated profile, never touches your real config or database):
 ```bash
 python3 test_wheel_stats.py
 ```

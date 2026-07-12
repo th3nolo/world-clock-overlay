@@ -198,6 +198,29 @@ def run_tests(app):
     app.is_pointer_over_window = lambda: False
     clock.PAUSE_HOLD_SEC = 0.5
 
+    # --- Click on the timer: coordinate hit-test in the drag handlers ---
+    app.force_redraw()  # ensure pause_btn_bbox reflects the current frame
+    bx1, by1, bx2, by2 = app.pause_btn_bbox
+    on_btn = type('E', (), {'x': int((bx1 + bx2) / 2), 'y': int((by1 + by2) / 2)})
+    off_btn = type('E', (), {'x': 2, 'y': 2})
+
+    app.start_drag(on_btn)
+    app.stop_drag(on_btn)
+    check('click on the timer pauses', app.paused)
+    app.start_drag(on_btn)
+    app.stop_drag(on_btn)
+    check('click on the timer again resumes', not app.paused)
+
+    app.start_drag(off_btn)
+    app.stop_drag(off_btn)
+    check('click elsewhere does not toggle', not app.paused)
+
+    app.start_drag(on_btn)
+    moved = type('E', (), {'x': on_btn.x + 40, 'y': on_btn.y})
+    app.do_drag(moved)
+    app.stop_drag(moved)
+    check('drag starting on the timer moves, never toggles', not app.paused)
+
     # --- Custom themed context popup (replaces native tk.Menu) ---
     class FakeClick:
         x_root = 150
