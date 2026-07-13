@@ -428,6 +428,18 @@ def run_tests(app):
     app.show_context_menu(FakeClick())
     check('context menu opens on glass',
           app.context_popup is not None)
+    import ctypes
+
+    def window_affinity(win):
+        hwnd = (ctypes.windll.user32.GetParent(win.winfo_id())
+                or win.winfo_id())
+        aff = ctypes.c_uint()
+        ctypes.windll.user32.GetWindowDisplayAffinity(hwnd, ctypes.byref(aff))
+        return aff.value
+
+    if app.glass_live:
+        check('context menu is capture-excluded on glass',
+              window_affinity(app.context_popup.win) == 0x11)
     app.context_popup.close_all()
     app.change_opacity(0.5)
     check('glass pins window alpha to 1.0 (wheel drives the tint)',
@@ -439,6 +451,10 @@ def run_tests(app):
           abs(float(app.root.attributes('-alpha')) - 0.5) < 0.001)
     app.change_opacity(0.85)
     app.change_theme('dark')
+    app.show_context_menu(FakeClick())
+    check('context menu is capturable on non-glass themes',
+          window_affinity(app.context_popup.win) == 0)
+    app.context_popup.close_all()
 
     # --- Text shadow: draw_text paints a shadow copy behind the text ---
     before = len(app.canvas.find_all())

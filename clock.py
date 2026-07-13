@@ -257,6 +257,7 @@ class PopupMenu:
 
         self.win.update_idletasks()
         self.place(x, y)
+        app.match_capture_affinity(self.win)
 
         root_popup = self.root_popup()
         self.win.bind('<Escape>', lambda e: root_popup.close_all())
@@ -866,6 +867,7 @@ class WorldClockApp:
         left, top, right, bottom = self.get_current_monitor_workarea()
         w = win.winfo_reqwidth()
         win.geometry(f'+{(left + right - w) // 2}+{top + (bottom - top) // 5}')
+        self.match_capture_affinity(win)
         self._last_alarm = win
         try:
             import winsound
@@ -1019,6 +1021,7 @@ class WorldClockApp:
         left, top, right, bottom = self.get_current_monitor_workarea()
         w, h = win.winfo_reqwidth(), win.winfo_reqheight()
         win.geometry(f'+{(left + right - w) // 2}+{(top + bottom - h) // 2}')
+        self.match_capture_affinity(win)
         win.bind('<Escape>', lambda e: win.destroy())
 
     def on_tray_activate(self):
@@ -1327,6 +1330,21 @@ class WorldClockApp:
         import ctypes
         return (ctypes.windll.user32.GetParent(self.root.winfo_id())
                 or self.root.winfo_id())
+
+    def match_capture_affinity(self, win):
+        # On live glass the overlay is invisible to screenshots and screen
+        # shares; windows it spawns (menus, alarms, dialogs) inherit that,
+        # so a capture never shows a menu floating over nothing
+        if not self.glass_live:
+            return
+        try:
+            import ctypes
+            win.update_idletasks()
+            hwnd = (ctypes.windll.user32.GetParent(win.winfo_id())
+                    or win.winfo_id())
+            ctypes.windll.user32.SetWindowDisplayAffinity(hwnd, 0x11)
+        except Exception:
+            pass
 
     def start_glass_live(self):
         if not (self.is_windows and HAS_PIL):
