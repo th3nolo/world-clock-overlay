@@ -29,8 +29,9 @@ PEEK_TIMEOUT_SEC = 2.5
 # immediately per motion event while dragging (back-to-back, bounded
 # only by render time: ~20ms with the direct-BitBlt grab -> ~40-50fps).
 GLASS_APPLY_MS = 16
-GLASS_IDLE_KICK_MS = 25
-GLASS_CALM_KICK_MS = 150  # gate after the backdrop stops changing
+GLASS_IDLE_KICK_MS = 25    # while the backdrop is actively changing
+GLASS_RECENT_KICK_MS = 45  # quiet for a moment (follow-up changes likely)
+GLASS_CALM_KICK_MS = 150   # deep idle: check lazily
 
 
 def grab_region_fast(x, y, w, h):
@@ -413,6 +414,7 @@ class WorldClockApp:
         self._glass_ready = None       # finished PIL frame awaiting swap
         self._glass_prev_sig = None    # backdrop thumbnail signature
         self._glass_change_streak = 0  # consecutive unchanged renders
+        self._glass_last_change = 0.0  # when the backdrop last changed
         self._glass_geo = None         # geometry cache for the worker chain
         self.next_reminder_text = None  # extra tray-tooltip line
         self._rem_after = None
@@ -1369,8 +1371,12 @@ class WorldClockApp:
             return
         self._glass_geo = self.glass_geometry()  # fresh for worker self-chain
         self._apply_ready_frame()  # fallback; usually <<GlassFrame>> already did
-        gate = (GLASS_IDLE_KICK_MS if self._glass_change_streak < 4
-                else GLASS_CALM_KICK_MS)  # static backdrop -> check lazily
+        if self._glass_change_streak < 4:
+            gate = GLASS_IDLE_KICK_MS
+        elif time.monotonic() - self._glass_last_change < 2.0:
+            gate = GLASS_RECENT_KICK_MS
+        else:
+            gate = GLASS_CALM_KICK_MS
         if (time.monotonic() - self._glass_last_kick) * 1000 >= gate:
             self.kick_glass_render()
         self._glass_after = self.root.after(GLASS_APPLY_MS, self.glass_tick)
@@ -1397,6 +1403,7 @@ class WorldClockApp:
             if img is not None:
                 self._glass_ready = img
                 self._glass_change_streak = 0
+                self._glass_last_change = time.monotonic()
                 try:
                     # Thread-safe wake-up: apply the frame as soon as the
                     # event loop breathes, not at timer granularity
@@ -1484,7 +1491,8 @@ class WorldClockApp:
         self._glass_masks = {
             'sig': (w, h, tint_a),
             'round': rnd,
-            'edge': edge,
+            'edge_half': edge.resize((max(1, w // 2), max(1, h // 2)),
+                                     Image.BILINEAR),
             'spec': spec,
             'tint': Image.new('RGBA', (w, h), (14, 16, 24, tint_a)),
         }
@@ -1506,15 +1514,18 @@ class WorldClockApp:
         self._glass_prev_sig = sig
         # Process at half resolution; two box blurs approximate a gaussian
         # at a fraction of the cost (the brightness pass folded into tint)
-        img = grab.resize((max(1, w // 2), max(1, h // 2)), Image.BILINEAR)
+        hw, hh = max(1, w // 2), max(1, h // 2)
+        img = grab.resize((hw, hh), Image.BILINEAR)
         img = img.filter(ImageFilter.BoxBlur(4)).filter(ImageFilter.BoxBlur(4))
         img = ImageEnhance.Color(img).enhance(1.5)
-        img = img.resize((w, h), Image.BILINEAR)
         m = self.glass_masks(w, h, self.glass_tint_alpha())
-        # Edge refraction: a slightly zoomed copy in a narrow edge band
-        zoom = img.resize((int(w * 1.04), int(h * 1.09)), Image.BILINEAR)
-        zx, zy = (zoom.width - w) // 2, (zoom.height - h) // 2
-        img = Image.composite(zoom.crop((zx, zy, zx + w, zy + h)), img, m['edge'])
+        # Edge refraction at half resolution too — the band is blurred
+        # content anyway, and it halves the zoom/composite cost
+        zoom = img.resize((int(hw * 1.04), int(hh * 1.09)), Image.BILINEAR)
+        zx, zy = (zoom.width - hw) // 2, (zoom.height - hh) // 2
+        img = Image.composite(zoom.crop((zx, zy, zx + hw, zy + hh)), img,
+                              m['edge_half'])
+        img = img.resize((w, h), Image.BILINEAR)
         img = Image.alpha_composite(img.convert('RGBA'), m['tint'])
         img = Image.alpha_composite(img, m['spec']).convert('RGB')
         # Corners show the RAW backdrop we already grabbed: real colorkey
