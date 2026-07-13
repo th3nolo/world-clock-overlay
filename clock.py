@@ -363,6 +363,7 @@ class WorldClockApp:
         self.tray_tooltip_counter = 9  # first refresh right after startup
         self.glass_live = False     # live-rendered liquid glass active
         self.glass_photo = None
+        self._glass_photo_prev = None  # keeps the displayed frame GC-safe
         self._glass_after = None
         self._glass_masks = None
         self._glass_boost = 0.0     # recent drag -> faster glass refresh
@@ -1006,10 +1007,11 @@ class WorldClockApp:
             self.glass_live = False
         if not self.glass_live:
             return  # fallback: plain card_bg panel, everything still works
+        # (Re)arm the loop with a short delay: rapid wheel steps each call
+        # apply_transparency, and a synchronous render per step would stall
         if self._glass_after is not None:
             self.root.after_cancel(self._glass_after)
-            self._glass_after = None
-        self.glass_tick()
+        self._glass_after = self.root.after(30, self.glass_tick)
 
     def stop_glass_live(self):
         if self._glass_after is not None:
@@ -1032,7 +1034,16 @@ class WorldClockApp:
             return
         if not self.hidden:
             try:
-                self.glass_photo = self.render_glass()
+                new_photo = self.render_glass()
+                # Keep the frame currently on screen referenced until the
+                # swap: if the old PhotoImage is garbage-collected while a
+                # canvas item still shows it, the panel blanks out — that
+                # reads as the whole overlay flickering on/off
+                self._glass_photo_prev = self.glass_photo
+                self.glass_photo = new_photo
+                if hasattr(self, 'canvas'):
+                    for iid in self.canvas.find_withtag('glass_bg'):
+                        self.canvas.itemconfig(iid, image=new_photo)
             except Exception as e:
                 print("Glass render failed:", e)
         fast = time.monotonic() - self._glass_boost < 1.0
@@ -1439,8 +1450,10 @@ class WorldClockApp:
 
         if is_glass and self.glass_photo is not None:
             # Panel body = live-rendered glass (opaque, so clicks work);
-            # its own mask supplies the border, sheen, and keyed corners
-            self.canvas.create_image(0, 0, anchor='nw', image=self.glass_photo)
+            # its own mask supplies the border, sheen, and keyed corners.
+            # Tagged so glass_tick can swap frames in place between redraws
+            self.canvas.create_image(0, 0, anchor='nw',
+                                     image=self.glass_photo, tags='glass_bg')
         else:
             self.draw_rounded_rect(
                 panel_x1, panel_y1, panel_x2, panel_y2, 8 if is_glass else 14,
