@@ -318,6 +318,7 @@ class WorldClockApp:
         self.peek_start = 0.0
         self.h_hold_start = None    # hold H over the overlay to hide it
         self._tray_click_after = None
+        self.tray_tooltip_counter = 9  # first refresh right after startup
         self.stats_cache = None  # (month, today, unique_days, base_seconds, today_seconds)
 
         # If no clocks are configured (First run), show setup wizard
@@ -1442,6 +1443,18 @@ class WorldClockApp:
         # Generous hit padding: the timer text is small, the target shouldn't be
         tb = self.canvas.bbox(timer_id)
         self.pause_btn_bbox = (tb[0] - 10, tb[1] - 8, tb[2] + 10, tb[3] + 8)
+
+        # Tray tooltip mirrors the stats (~every 2s), so hovering the icon
+        # answers "how much today?" even while the overlay is hidden
+        self.tray_tooltip_counter += 1
+        if HAS_TRAY and hasattr(self, 'tray_icon') and self.tray_tooltip_counter >= 10:
+            self.tray_tooltip_counter = 0
+            tip = f"{timer_text}  ·  {today_part}  ·  {month_part}"
+            try:
+                if self.tray_icon.title != tip:
+                    self.tray_icon.title = tip
+            except Exception:
+                pass
 
         self.draw_hold_bar()
         self._redraw_after = self.root.after(200, self.update_clocks)

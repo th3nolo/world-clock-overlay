@@ -16,6 +16,7 @@ A Python desktop overlay, built with Tkinter, that shows your local time and up 
 - **Pause tracking**: click the ⏱ timer, or hover the overlay and hold Space for half a second — the divider line fills from both edges to the center, and when the halves meet the timer pauses. Paused time is never written to the database; the same gesture resumes.
 - **Themed context menu**: the right-click menu is drawn with the active theme (panel colors, border, hover accent) instead of the native white system menu, and restyles instantly when you switch themes.
 - **Hide to tray**: hold H over the overlay (it fades out while you hold) to hide it; the tray icon stays. A single click on the tray icon peeks — the overlay shows until the mouse leaves it — and a double click brings it back for good.
+- **Tray tooltip**: hovering the tray icon shows the session timer plus today's and the month's hours — no click needed, works while the overlay is hidden.
 - **Four themes**: Frosted Dark, Frosted Light, Cyberpunk Neon, and Nordic Frost.
 - **Translucency**: set the overlay between 30% and 100% opacity from the right-click menu, or scroll the mouse wheel while hovering the overlay.
 - **Readable on light backgrounds**: secondary text (labels, dates, status bar) is near-white — near-black in the light theme — and every text is drawn with a 1px contrast shadow, so the translucent overlay stays legible over white windows.

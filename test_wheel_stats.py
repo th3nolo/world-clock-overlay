@@ -253,6 +253,13 @@ def run_tests(app):
     check('show restores the window',
           not app.hidden and app.root.state() == 'normal')
 
+    # --- Tray tooltip mirrors the hours ---
+    if clock.HAS_TRAY and hasattr(app, 'tray_icon'):
+        app.tray_tooltip_counter = 9
+        app.force_redraw()
+        check('tray tooltip carries the hours',
+              'Today' in app.tray_icon.title and 'hrs' in app.tray_icon.title)
+
     # --- Held H over the overlay hides it (with fade) ---
     clock.PAUSE_HOLD_SEC = 0.05
     app.is_pointer_over_window = lambda: True
