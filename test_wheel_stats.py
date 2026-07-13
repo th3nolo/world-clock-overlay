@@ -345,14 +345,11 @@ def run_tests(app):
           app.settings['theme'] == 'glass')
     check('glass live pipeline engaged', app.glass_live)
     if app.glass_live:
-        check('glass renders a live backdrop frame',
-              app.render_glass() is not None)
-        if app._glass_after is not None:
-            app.root.after_cancel(app._glass_after)
-            app._glass_after = None
-        app.glass_tick()      # first frame
-        app.force_redraw()    # image item lands on the canvas
-        app.glass_tick()      # second frame must swap in place
+        frame = app.render_glass()
+        check('glass renders a live backdrop frame', frame is not None)
+        app.apply_glass_frame(frame)   # first frame on screen
+        app.force_redraw()             # image item lands on the canvas
+        app.apply_glass_frame(app.render_glass())  # swap in place
         check('glass frames swap in place, old frame kept referenced',
               len(app.canvas.find_withtag('glass_bg')) == 1
               and app._glass_photo_prev is not None)

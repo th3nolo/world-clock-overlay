@@ -23,9 +23,11 @@ PAUSE_HOLD_SEC = 0.5
 # arrives on the overlay (leaving after a hover always hides immediately)
 PEEK_TIMEOUT_SEC = 2.5
 
-# Live liquid glass: backdrop refresh cadence (fast while dragging)
-GLASS_REFRESH_MS = 250
-GLASS_DRAG_REFRESH_MS = 66
+# Live liquid glass: backdrop refresh cadence (fast while dragging).
+# Rendering runs on a worker thread, so the cadence is bounded by render
+# time (~60ms), not by what the UI thread can absorb.
+GLASS_REFRESH_MS = 100
+GLASS_DRAG_REFRESH_MS = 50
 
 # Curated list of common timezones for the setup wizard dropdown
 COMMON_ZONES = [
@@ -367,6 +369,8 @@ class WorldClockApp:
         self._glass_after = None
         self._glass_masks = None
         self._glass_boost = 0.0     # recent drag -> faster glass refresh
+        self._glass_rendering = False  # a worker thread is busy on a frame
+        self._glass_ready = None       # finished PIL frame awaiting swap
         self.stats_cache = None  # (month, today, unique_days, base_seconds, today_seconds)
 
         # If no clocks are configured (First run), show setup wizard
@@ -1029,27 +1033,47 @@ class WorldClockApp:
                 pass
 
     def glass_tick(self):
+        # UI-thread side of the pipeline: apply a finished frame if one is
+        # waiting, then kick the next render on a worker thread. The heavy
+        # PIL work off the UI thread keeps the mouse and drags smooth.
         self._glass_after = None
         if self.settings['theme'] != 'glass' or not self.glass_live:
             return
-        if not self.hidden:
-            try:
-                new_photo = self.render_glass()
-                # Keep the frame currently on screen referenced until the
-                # swap: if the old PhotoImage is garbage-collected while a
-                # canvas item still shows it, the panel blanks out — that
-                # reads as the whole overlay flickering on/off
-                self._glass_photo_prev = self.glass_photo
-                self.glass_photo = new_photo
-                if hasattr(self, 'canvas'):
-                    for iid in self.canvas.find_withtag('glass_bg'):
-                        self.canvas.itemconfig(iid, image=new_photo)
-            except Exception as e:
-                print("Glass render failed:", e)
+        if self._glass_ready is not None:
+            img, self._glass_ready = self._glass_ready, None
+            self.apply_glass_frame(img)
+        if not self.hidden and not self._glass_rendering:
+            self._glass_rendering = True
+            geo = self.glass_geometry()  # Tk calls must happen on this thread
+            threading.Thread(target=self._glass_worker, args=(geo,),
+                             daemon=True).start()
         fast = time.monotonic() - self._glass_boost < 1.0
         self._glass_after = self.root.after(
             GLASS_DRAG_REFRESH_MS if fast else GLASS_REFRESH_MS,
             self.glass_tick)
+
+    def _glass_worker(self, geo):
+        try:
+            self._glass_ready = self.render_glass(geo)
+        except Exception as e:
+            print("Glass render failed:", e)
+        finally:
+            self._glass_rendering = False
+
+    def glass_geometry(self):
+        return (self.root.winfo_rootx(), self.root.winfo_rooty(),
+                *self.get_window_size())
+
+    def apply_glass_frame(self, img):
+        # Keep the frame currently on screen referenced until the swap: if
+        # the displayed PhotoImage is garbage-collected the panel blanks,
+        # which reads as the whole overlay flickering on/off
+        new_photo = ImageTk.PhotoImage(img)
+        self._glass_photo_prev = self.glass_photo
+        self.glass_photo = new_photo
+        if hasattr(self, 'canvas'):
+            for iid in self.canvas.find_withtag('glass_bg'):
+                self.canvas.itemconfig(iid, image=new_photo)
 
     def glass_tint_alpha(self):
         # Wheel position maps to tint strength: down = clearer glass
@@ -1066,18 +1090,18 @@ class WorldClockApp:
         ImageDraw.Draw(rnd).rounded_rectangle((0, 0, w - 1, h - 1), r, fill=255)
         inner = Image.new('L', (w, h), 0)
         ImageDraw.Draw(inner).rounded_rectangle(
-            (14, 14, w - 15, h - 15), r, fill=255)
+            (8, 8, w - 9, h - 9), r, fill=255)
         edge = Image.composite(rnd, Image.new('L', (w, h), 0),
                                inner.point(lambda v: 255 - v))
-        edge = edge.filter(ImageFilter.GaussianBlur(6))
+        edge = edge.filter(ImageFilter.GaussianBlur(3))
         spec = Image.new('RGBA', (w, h), (0, 0, 0, 0))
         d = ImageDraw.Draw(spec)
         d.rounded_rectangle((0, 0, w - 1, h - 1), r,
-                            outline=(255, 255, 255, 150), width=1)
+                            outline=(255, 255, 255, 140), width=1)
         d.rounded_rectangle((1, 1, w - 2, h - 2), r - 1,
-                            outline=(255, 255, 255, 55), width=1)
-        for i in range(28):  # top sheen fading downward
-            a = int(36 * (1 - i / 28))
+                            outline=(255, 255, 255, 30), width=1)
+        for i in range(14):  # top sheen: subtle, not a milky coat
+            a = int(20 * (1 - i / 14))
             d.line((r, 2 + i, w - r, 2 + i), fill=(255, 255, 255, a))
         spec.putalpha(Image.composite(
             spec.getchannel('A'), Image.new('L', (w, h), 0), rnd))
@@ -1091,9 +1115,9 @@ class WorldClockApp:
         }
         return self._glass_masks
 
-    def render_glass(self):
-        x, y = self.root.winfo_rootx(), self.root.winfo_rooty()
-        w, h = self.get_window_size()
+    def render_glass(self, geo=None):
+        # Pure PIL, safe on a worker thread when geo is passed in
+        x, y, w, h = geo if geo else self.glass_geometry()
         grab = ImageGrab.grab(bbox=(x, y, x + w, y + h)).convert('RGB')
         # Process at half resolution: ~4x cheaper, visually identical blur
         img = grab.resize((max(1, w // 2), max(1, h // 2)), Image.BILINEAR)
@@ -1102,15 +1126,15 @@ class WorldClockApp:
         img = ImageEnhance.Brightness(img).enhance(0.9)
         img = img.resize((w, h), Image.BILINEAR)
         m = self.glass_masks(w, h, self.glass_tint_alpha())
-        # Edge refraction: a zoomed copy shows through in the edge band
-        zoom = img.resize((int(w * 1.10), int(h * 1.25)), Image.BILINEAR)
+        # Edge refraction: a slightly zoomed copy in a narrow edge band
+        zoom = img.resize((int(w * 1.04), int(h * 1.09)), Image.BILINEAR)
         zx, zy = (zoom.width - w) // 2, (zoom.height - h) // 2
         img = Image.composite(zoom.crop((zx, zy, zx + w, zy + h)), img, m['edge'])
         img = Image.alpha_composite(img.convert('RGBA'), m['tint'])
         img = Image.alpha_composite(img, m['spec']).convert('RGB')
         # Corners take the key color and stay transparent + click-through
         img = Image.composite(img, m['keybg'], m['round'])
-        return ImageTk.PhotoImage(img)
+        return img
 
     # ==========================================================================
     # Window Layout Positioning
