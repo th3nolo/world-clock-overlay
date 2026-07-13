@@ -238,8 +238,19 @@ def run_tests(app):
     app.peek_watch()   # mouse arrives on the overlay
     check('peek stays while hovered', not app.hidden)
     app.is_pointer_over_window = lambda: False
-    app.peek_watch()   # mouse leaves
-    check('peek hides when the mouse leaves', app.hidden)
+    app.peek_watch()   # mouse leaves -> fade starts
+    check('leaving starts the fade, not an instant hide', not app.hidden)
+    app.fade_out_and_hide(0.5)
+    check('mid-fade the window dims',
+          float(app.root.attributes('-alpha')) < app.settings['opacity'])
+    app.is_pointer_over_window = lambda: True
+    app.fade_out_and_hide(0.7)  # mouse returns mid-fade
+    check('re-entering cancels the fade',
+          not app.hidden
+          and abs(float(app.root.attributes('-alpha')) - app.settings['opacity']) < 0.01)
+    app.is_pointer_over_window = lambda: False
+    app.fade_out_and_hide(1.0)  # jump to the fade's end
+    check('completed fade hides the overlay', app.hidden)
 
     app.hide_overlay()
     app._tray_single_click()
@@ -247,6 +258,7 @@ def run_tests(app):
     app.peek_hovered = False
     app.peek_start -= clock.PEEK_TIMEOUT_SEC + 1  # pretend time passed
     app.peek_watch()
+    app.fade_out_and_hide(1.0)
     check('peek times out if the mouse never arrives', app.hidden)
 
     app.show_overlay()
@@ -260,31 +272,25 @@ def run_tests(app):
         check('tray tooltip carries the hours',
               'Today' in app.tray_icon.title and 'hrs' in app.tray_icon.title)
 
-    # --- Held H over the overlay hides it (with fade) ---
-    clock.PAUSE_HOLD_SEC = 0.05
+    # --- Tapping H over the overlay hides it instantly ---
     app.is_pointer_over_window = lambda: True
+    app.h_was_down = False
     app.is_h_down = lambda: True
     app.poll_pause_hotkey()
-    time.sleep(0.1)
+    check('H tap hides instantly', app.hidden)
     app.poll_pause_hotkey()
-    check('held H hides the overlay', app.hidden)
     app.is_h_down = lambda: False
     app.poll_pause_hotkey()
-    app.show_overlay()
-    check('opacity restored after the fade-out',
-          abs(float(app.root.attributes('-alpha')) - app.settings['opacity']) < 0.01)
 
-    app.hide_overlay()             # H must be inert while hidden
-    app.is_h_down = lambda: True
+    app.is_h_down = lambda: True   # H must be inert while hidden
     app.poll_pause_hotkey()
-    time.sleep(0.1)
-    app.poll_pause_hotkey()
-    check('H is ignored while hidden',
-          app.hidden and app.h_hold_start is None)
+    check('H is ignored while hidden', app.hidden)
     app.is_h_down = lambda: False
+    app.poll_pause_hotkey()
     app.show_overlay()
+    check('overlay shows at full configured opacity',
+          abs(float(app.root.attributes('-alpha')) - app.settings['opacity']) < 0.01)
     app.is_pointer_over_window = lambda: False
-    clock.PAUSE_HOLD_SEC = 0.5
 
     # --- Custom themed context popup (replaces native tk.Menu) ---
     class FakeClick:

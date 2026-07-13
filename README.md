@@ -15,7 +15,7 @@ A Python desktop overlay, built with Tkinter, that shows your local time and up 
 - **Status bar**: a live stopwatch for the current session, plus today's hours and the days worked and total hours in the current month. Sessions are clipped at midnight, so one day can never show more than 24 hours.
 - **Pause tracking**: click the ⏱ timer, or hover the overlay and hold Space for half a second — the divider line fills from both edges to the center, and when the halves meet the timer pauses. Paused time is never written to the database; the same gesture resumes.
 - **Themed context menu**: the right-click menu is drawn with the active theme (panel colors, border, hover accent) instead of the native white system menu, and restyles instantly when you switch themes.
-- **Hide to tray**: hold H over the overlay (it fades out while you hold) to hide it; the tray icon stays. A single click on the tray icon peeks — the overlay shows until the mouse leaves it — and a double click brings it back for good.
+- **Hide to tray**: tap H over the overlay to hide it instantly (instant on purpose: holding a key leaks key-repeat into the window you're typing in); the tray icon stays. A single click on the tray icon peeks — the overlay shows until the mouse leaves it, then fades out over half a second (moving back onto it cancels the fade) — and a double click brings it back for good.
 - **Tray tooltip**: hovering the tray icon shows the session timer plus today's and the month's hours — no click needed, works while the overlay is hidden.
 - **Four themes**: Frosted Dark, Frosted Light, Cyberpunk Neon, and Nordic Frost.
 - **Translucency**: set the overlay between 30% and 100% opacity from the right-click menu, or scroll the mouse wheel while hovering the overlay.
@@ -99,7 +99,7 @@ The script installs Pillow and pystray if they are missing, then launches `pytho
 
 - **Move**: click and drag anywhere on the overlay.
 - **Pause/resume the work timer**: click the ⏱ timer text, or hold Space for 0.5 s while hovering the overlay.
-- **Hide to tray**: hold H for 0.5 s while hovering the overlay, or right-click → "Hide Overlay". Single-click the tray icon to peek (hides again when the mouse leaves the overlay); double-click it to bring the overlay back permanently.
+- **Hide to tray**: tap H while hovering the overlay, or right-click → "Hide Overlay". Single-click the tray icon to peek (fades away when the mouse leaves the overlay); double-click it to bring the overlay back permanently.
 - **Toggle layout**: double-click to switch between horizontal and vertical.
 - **Translucency**: scroll the mouse wheel while hovering the overlay (steps through 30/50/70/85/100%).
 - **Options**: right-click the overlay (or the tray icon) for time format, seconds, translucency, themes, and "Reset Clocks Setup Wizard".
