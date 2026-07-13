@@ -1465,15 +1465,20 @@ class WorldClockApp:
         edge = Image.composite(rnd, Image.new('L', (w, h), 0),
                                inner.point(lambda v: 255 - v))
         edge = edge.filter(ImageFilter.GaussianBlur(3))
-        spec = Image.new('RGBA', (w, h), (0, 0, 0, 0))
-        d = ImageDraw.Draw(spec)
-        d.rounded_rectangle((0, 0, w - 1, h - 1), r,
-                            outline=(255, 255, 255, 140), width=1)
-        d.rounded_rectangle((1, 1, w - 2, h - 2), r - 1,
-                            outline=(255, 255, 255, 30), width=1)
-        for i in range(14):  # top sheen: subtle, not a milky coat
-            a = int(20 * (1 - i / 14))
-            d.line((r, 2 + i, w - r, 2 + i), fill=(255, 255, 255, a))
+        # Specular rim drawn 4x and downsampled like the mask: at final
+        # resolution the 1px white outline stair-steps along the curve
+        spec_big = Image.new('RGBA', (w * ss, h * ss), (0, 0, 0, 0))
+        d = ImageDraw.Draw(spec_big)
+        d.rounded_rectangle((0, 0, w * ss - 1, h * ss - 1), r * ss,
+                            outline=(255, 255, 255, 150), width=ss)
+        d.rounded_rectangle((ss, ss, w * ss - 1 - ss, h * ss - 1 - ss),
+                            (r - 1) * ss, outline=(255, 255, 255, 30),
+                            width=ss)
+        for i in range(14 * ss):  # top sheen: subtle, not a milky coat
+            a = int(20 * (1 - i / (14 * ss)))
+            d.line((r * ss, 2 * ss + i, (w - r) * ss, 2 * ss + i),
+                   fill=(255, 255, 255, a))
+        spec = spec_big.resize((w, h), Image.LANCZOS)
         spec.putalpha(Image.composite(
             spec.getchannel('A'), Image.new('L', (w, h), 0), rnd))
         self._glass_masks = {
