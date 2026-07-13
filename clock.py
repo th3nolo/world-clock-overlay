@@ -1452,8 +1452,13 @@ class WorldClockApp:
         if self._glass_masks and self._glass_masks.get('sig') == (w, h, tint_a):
             return self._glass_masks
         r = 16
-        rnd = Image.new('L', (w, h), 0)
-        ImageDraw.Draw(rnd).rounded_rectangle((0, 0, w - 1, h - 1), r, fill=255)
+        # Antialiased rounded mask (drawn 4x and downsampled): the corner
+        # pixels BLEND between glass and backdrop instead of stair-stepping
+        ss = 4
+        big = Image.new('L', (w * ss, h * ss), 0)
+        ImageDraw.Draw(big).rounded_rectangle(
+            (0, 0, w * ss - 1, h * ss - 1), r * ss, fill=255)
+        rnd = big.resize((w, h), Image.LANCZOS)
         inner = Image.new('L', (w, h), 0)
         ImageDraw.Draw(inner).rounded_rectangle(
             (8, 8, w - 9, h - 9), r, fill=255)
@@ -1477,7 +1482,6 @@ class WorldClockApp:
             'edge': edge,
             'spec': spec,
             'tint': Image.new('RGBA', (w, h), (14, 16, 24, tint_a)),
-            'keybg': Image.new('RGB', (w, h), self.get_theme()['bg']),
         }
         return self._glass_masks
 
@@ -1508,8 +1512,11 @@ class WorldClockApp:
         img = Image.composite(zoom.crop((zx, zy, zx + w, zy + h)), img, m['edge'])
         img = Image.alpha_composite(img.convert('RGBA'), m['tint'])
         img = Image.alpha_composite(img, m['spec']).convert('RGB')
-        # Corners take the key color and stay transparent + click-through
-        img = Image.composite(img, m['keybg'], m['round'])
+        # Corners show the RAW backdrop we already grabbed: real colorkey
+        # transparency renders opaque black on capture-excluded windows,
+        # so fake transparency with reality itself (and get an antialiased
+        # rounded edge, which colorkey could never do)
+        img = Image.composite(img, grab, m['round'])
         return img
 
     # ==========================================================================
