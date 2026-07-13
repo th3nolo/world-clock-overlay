@@ -1445,11 +1445,12 @@ class WorldClockApp:
         self.pause_btn_bbox = (tb[0] - 10, tb[1] - 8, tb[2] + 10, tb[3] + 8)
 
         # Tray tooltip mirrors the stats (~every 2s), so hovering the icon
-        # answers "how much today?" even while the overlay is hidden
+        # answers "how much today?" even while the overlay is hidden.
+        # One value per line: Windows wraps single-line tooltips mid-word.
         self.tray_tooltip_counter += 1
         if HAS_TRAY and hasattr(self, 'tray_icon') and self.tray_tooltip_counter >= 10:
             self.tray_tooltip_counter = 0
-            tip = f"{timer_text}  ·  {today_part}  ·  {month_part}"
+            tip = f"{timer_text}\n{today_part}\n{month_part}"
             try:
                 if self.tray_icon.title != tip:
                     self.tray_icon.title = tip
