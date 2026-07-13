@@ -723,6 +723,9 @@ class WorldClockApp:
         self.root.attributes('-topmost', True)
         self.root.lift()
         self.apply_transparency()
+        if (self.demo_mode and self.glass_live
+                and self.settings['theme'] == 'glass'):
+            self.demo_snapshot_refresh()  # frozen glass matches on reveal
         self.peeking = peek
         if peek:
             self.peek_hovered = False
@@ -1365,8 +1368,12 @@ class WorldClockApp:
             return
         try:
             import ctypes
+            # Demo mode keeps the window capturable; this runs from every
+            # apply_transparency (show, peek, wheel, drag-end), so it must
+            # not silently re-enable privacy mid-demo
+            affinity = 0x00 if self.demo_mode else 0x11
             ok = ctypes.windll.user32.SetWindowDisplayAffinity(
-                self._root_hwnd(), 0x11)  # WDA_EXCLUDEFROMCAPTURE
+                self._root_hwnd(), affinity)
             self.glass_live = bool(ok)
         except Exception:
             self.glass_live = False

@@ -466,6 +466,28 @@ def run_tests(app):
               not app.demo_mode and window_affinity(app.root) == 0x11)
         app.is_del_down = lambda: False
         app.poll_pause_hotkey()
+
+        # Demo mode must survive hide/peek/show cycles: show_overlay runs
+        # apply_transparency, which used to silently re-exclude the window
+        app.is_del_down = lambda: True
+        app.del_was_down = False
+        app.poll_pause_hotkey()   # demo on again
+        app.is_del_down = lambda: False
+        app.poll_pause_hotkey()
+        app.hide_overlay()
+        app._tray_single_click()  # tray peek during demo
+        check('tray peek during demo stays capturable',
+              app.demo_mode and window_affinity(app.root) == 0)
+        app.show_overlay()
+        check('full show during demo stays capturable',
+              window_affinity(app.root) == 0)
+        app.is_del_down = lambda: True
+        app.del_was_down = False
+        app.poll_pause_hotkey()   # demo off
+        app.is_del_down = lambda: False
+        app.poll_pause_hotkey()
+        check('privacy restored after the hide/peek demo cycle',
+              window_affinity(app.root) == 0x11)
         app.is_pointer_over_window = lambda: False
     app.change_opacity(0.5)
     check('glass pins window alpha to 1.0 (wheel drives the tint)',
