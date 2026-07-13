@@ -23,6 +23,10 @@ PAUSE_HOLD_SEC = 0.5
 # arrives on the overlay (leaving after a hover always hides immediately)
 PEEK_TIMEOUT_SEC = 2.5
 
+# Live liquid glass: backdrop refresh cadence (fast while dragging)
+GLASS_REFRESH_MS = 250
+GLASS_DRAG_REFRESH_MS = 66
+
 # Curated list of common timezones for the setup wizard dropdown
 COMMON_ZONES = [
     ("Local System Time", "Local"),
@@ -143,12 +147,12 @@ THEMES = {
         'sun': '#e8c47a',
         'moon': '#8fa8e8'
     },
-    # Liquid glass: card_bg equals the transparent key color, so the panel
-    # body punches through to the Windows acrylic backdrop (real blur);
-    # text and borders are drawn on top of the glass.
+    # Liquid glass: the panel body is a live-rendered image of the blurred
+    # backdrop (see render_glass), so its pixels are opaque and clickable.
+    # card_bg is only used by the popup menu and as the no-PIL fallback.
     'glass': {
         'bg': '#010101',
-        'card_bg': '#010101',
+        'card_bg': '#12141b',
         'card_border': '#c3c9d6',
         'divider': '#8b93a3',
         'text_main': '#ffffff',
@@ -310,13 +314,20 @@ class PopupMenu:
             self.close_all()
 
 
-# Conditional imports for System Tray support
+# Conditional imports: PIL powers the tray icon and the live glass theme
+HAS_PIL = False
+try:
+    from PIL import (Image, ImageDraw, ImageGrab, ImageTk,
+                     ImageFilter, ImageEnhance)
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
+
 HAS_TRAY = False
 try:
-    from PIL import Image, ImageDraw
     import pystray
     from pystray import MenuItem as item
-    HAS_TRAY = True
+    HAS_TRAY = HAS_PIL
 except ImportError:
     HAS_TRAY = False
 
@@ -350,6 +361,11 @@ class WorldClockApp:
         self.h_was_down = False     # tap H over the overlay to hide it
         self._tray_click_after = None
         self.tray_tooltip_counter = 9  # first refresh right after startup
+        self.glass_live = False     # live-rendered liquid glass active
+        self.glass_photo = None
+        self._glass_after = None
+        self._glass_masks = None
+        self._glass_boost = 0.0     # recent drag -> faster glass refresh
         self.stats_cache = None  # (month, today, unique_days, base_seconds, today_seconds)
 
         # If no clocks are configured (First run), show setup wizard
@@ -950,63 +966,140 @@ class WorldClockApp:
         if self.is_windows:
             self.root.wm_attributes("-transparentcolor", theme['bg'])
             is_glass = self.settings['theme'] == 'glass'
-            # On glass the wheel drives the acrylic tint strength instead:
-            # layered alpha stacked on the acrylic backdrop renders wrong
+            # On glass the wheel drives the tint strength instead: layered
+            # alpha stacked on the rendered glass just dims the text
             self.root.attributes(
                 '-alpha', 1.0 if is_glass else self.settings['opacity'])
-            self.apply_glass_effect(is_glass)
+            if is_glass:
+                self.start_glass_live()
+            else:
+                self.stop_glass_live()
         else:
             self.root.attributes('-alpha', self.settings['opacity'])
 
-    def apply_glass_effect(self, enable):
-        # Windows acrylic backdrop (SetWindowCompositionAttribute) behind the
-        # window: pixels of the transparent key color reveal blurred glass
-        # instead of plain desktop. Win11 also rounds the window corners so
-        # the slab itself has the panel shape. Undocumented but stable API;
-        # everything is guarded so failure just means no blur.
-        if not self.is_windows:
+    # ==========================================================================
+    # Live Liquid Glass
+    #
+    # The window is excluded from screen capture (WDA_EXCLUDEFROMCAPTURE),
+    # so grabbing its own rectangle returns exactly what is BEHIND it. That
+    # backdrop is blurred, saturated, edge-refracted, tinted and rim-lit in
+    # PIL, then painted as the panel body. The pixels are opaque, so mouse
+    # events work everywhere (the earlier acrylic color-key approach made
+    # the whole panel click-through). Side effect while glass is active:
+    # the overlay is invisible in screenshots and screen shares.
+    # ==========================================================================
+    def _root_hwnd(self):
+        import ctypes
+        return (ctypes.windll.user32.GetParent(self.root.winfo_id())
+                or self.root.winfo_id())
+
+    def start_glass_live(self):
+        if not (self.is_windows and HAS_PIL):
+            self.glass_live = False
             return
         try:
             import ctypes
+            ok = ctypes.windll.user32.SetWindowDisplayAffinity(
+                self._root_hwnd(), 0x11)  # WDA_EXCLUDEFROMCAPTURE
+            self.glass_live = bool(ok)
+        except Exception:
+            self.glass_live = False
+        if not self.glass_live:
+            return  # fallback: plain card_bg panel, everything still works
+        if self._glass_after is not None:
+            self.root.after_cancel(self._glass_after)
+            self._glass_after = None
+        self.glass_tick()
 
-            class ACCENT_POLICY(ctypes.Structure):
-                _fields_ = [('AccentState', ctypes.c_uint),
-                            ('AccentFlags', ctypes.c_uint),
-                            ('GradientColor', ctypes.c_uint),
-                            ('AnimationId', ctypes.c_uint)]
+    def stop_glass_live(self):
+        if self._glass_after is not None:
+            self.root.after_cancel(self._glass_after)
+            self._glass_after = None
+        self.glass_photo = None
+        self._glass_masks = None
+        if self.glass_live:
+            self.glass_live = False
+            try:
+                import ctypes
+                ctypes.windll.user32.SetWindowDisplayAffinity(
+                    self._root_hwnd(), 0)
+            except Exception:
+                pass
 
-            class WCA_DATA(ctypes.Structure):
-                _fields_ = [('Attribute', ctypes.c_int),
-                            ('Data', ctypes.c_void_p),
-                            ('SizeOfData', ctypes.c_size_t)]
+    def glass_tick(self):
+        self._glass_after = None
+        if self.settings['theme'] != 'glass' or not self.glass_live:
+            return
+        if not self.hidden:
+            try:
+                self.glass_photo = self.render_glass()
+            except Exception as e:
+                print("Glass render failed:", e)
+        fast = time.monotonic() - self._glass_boost < 1.0
+        self._glass_after = self.root.after(
+            GLASS_DRAG_REFRESH_MS if fast else GLASS_REFRESH_MS,
+            self.glass_tick)
 
-            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
-            if not hwnd:
-                hwnd = self.root.winfo_id()
+    def glass_tint_alpha(self):
+        # Wheel position maps to tint strength: down = clearer glass
+        lo, hi = OPACITY_LEVELS[0], OPACITY_LEVELS[-1]
+        return int(0x38 + (self.settings['opacity'] - lo)
+                   * (0xE0 - 0x38) / (hi - lo))
 
-            accent = ACCENT_POLICY()
-            accent.AccentState = 4 if enable else 0  # ACRYLIC_BLURBEHIND / DISABLED
-            accent.AccentFlags = 2 if enable else 0
-            # AABBGGRR tint blended into the blur (dark, slightly blue).
-            # The opacity setting scales the tint: wheel down = clearer
-            # glass, wheel up = more solid glass
-            op = self.settings['opacity']
-            lo, hi = OPACITY_LEVELS[0], OPACITY_LEVELS[-1]
-            tint_a = int(0x38 + (op - lo) * (0xE0 - 0x38) / (hi - lo))
-            accent.GradientColor = ((tint_a << 24) | 0x1E1612) if enable else 0
-            data = WCA_DATA()
-            data.Attribute = 19  # WCA_ACCENT_POLICY
-            data.Data = ctypes.cast(ctypes.pointer(accent), ctypes.c_void_p)
-            data.SizeOfData = ctypes.sizeof(accent)
-            ctypes.windll.user32.SetWindowCompositionAttribute(
-                hwnd, ctypes.byref(data))
+    def glass_masks(self, w, h, tint_a):
+        # Static layers, rebuilt only when size or tint changes
+        if self._glass_masks and self._glass_masks.get('sig') == (w, h, tint_a):
+            return self._glass_masks
+        r = 16
+        rnd = Image.new('L', (w, h), 0)
+        ImageDraw.Draw(rnd).rounded_rectangle((0, 0, w - 1, h - 1), r, fill=255)
+        inner = Image.new('L', (w, h), 0)
+        ImageDraw.Draw(inner).rounded_rectangle(
+            (14, 14, w - 15, h - 15), r, fill=255)
+        edge = Image.composite(rnd, Image.new('L', (w, h), 0),
+                               inner.point(lambda v: 255 - v))
+        edge = edge.filter(ImageFilter.GaussianBlur(6))
+        spec = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+        d = ImageDraw.Draw(spec)
+        d.rounded_rectangle((0, 0, w - 1, h - 1), r,
+                            outline=(255, 255, 255, 150), width=1)
+        d.rounded_rectangle((1, 1, w - 2, h - 2), r - 1,
+                            outline=(255, 255, 255, 55), width=1)
+        for i in range(28):  # top sheen fading downward
+            a = int(36 * (1 - i / 28))
+            d.line((r, 2 + i, w - r, 2 + i), fill=(255, 255, 255, a))
+        spec.putalpha(Image.composite(
+            spec.getchannel('A'), Image.new('L', (w, h), 0), rnd))
+        self._glass_masks = {
+            'sig': (w, h, tint_a),
+            'round': rnd,
+            'edge': edge,
+            'spec': spec,
+            'tint': Image.new('RGBA', (w, h), (14, 16, 24, tint_a)),
+            'keybg': Image.new('RGB', (w, h), self.get_theme()['bg']),
+        }
+        return self._glass_masks
 
-            # DWMWA_WINDOW_CORNER_PREFERENCE (Win11; harmless no-op on Win10)
-            pref = ctypes.c_int(2 if enable else 0)  # ROUND / DEFAULT
-            ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                hwnd, 33, ctypes.byref(pref), 4)
-        except Exception as e:
-            print("Glass effect unavailable:", e)
+    def render_glass(self):
+        x, y = self.root.winfo_rootx(), self.root.winfo_rooty()
+        w, h = self.get_window_size()
+        grab = ImageGrab.grab(bbox=(x, y, x + w, y + h)).convert('RGB')
+        # Process at half resolution: ~4x cheaper, visually identical blur
+        img = grab.resize((max(1, w // 2), max(1, h // 2)), Image.BILINEAR)
+        img = img.filter(ImageFilter.GaussianBlur(6))
+        img = ImageEnhance.Color(img).enhance(1.5)
+        img = ImageEnhance.Brightness(img).enhance(0.9)
+        img = img.resize((w, h), Image.BILINEAR)
+        m = self.glass_masks(w, h, self.glass_tint_alpha())
+        # Edge refraction: a zoomed copy shows through in the edge band
+        zoom = img.resize((int(w * 1.10), int(h * 1.25)), Image.BILINEAR)
+        zx, zy = (zoom.width - w) // 2, (zoom.height - h) // 2
+        img = Image.composite(zoom.crop((zx, zy, zx + w, zy + h)), img, m['edge'])
+        img = Image.alpha_composite(img.convert('RGBA'), m['tint'])
+        img = Image.alpha_composite(img, m['spec']).convert('RGB')
+        # Corners take the key color and stay transparent + click-through
+        img = Image.composite(img, m['keybg'], m['round'])
+        return ImageTk.PhotoImage(img)
 
     # ==========================================================================
     # Window Layout Positioning
@@ -1148,6 +1241,7 @@ class WorldClockApp:
             self.press_on_pause = False
             self.root.attributes('-alpha', 0.3)
         self.drag_moved = True
+        self._glass_boost = time.monotonic()  # glass follows the drag faster
         x = self.root.winfo_x() + (event.x - self.drag_start_x)
         y = self.root.winfo_y() + (event.y - self.drag_start_y)
         w, h = self.get_window_size()
@@ -1343,12 +1437,17 @@ class WorldClockApp:
         status_h = 24 if layout == 'horizontal' else 52
         status_sep_y = panel_y2 - status_h
 
-        self.draw_rounded_rect(
-            panel_x1, panel_y1, panel_x2, panel_y2, 8 if is_glass else 14,
-            fill=theme['card_bg'],
-            outline=theme['card_border'],
-            width=1
-        )
+        if is_glass and self.glass_photo is not None:
+            # Panel body = live-rendered glass (opaque, so clicks work);
+            # its own mask supplies the border, sheen, and keyed corners
+            self.canvas.create_image(0, 0, anchor='nw', image=self.glass_photo)
+        else:
+            self.draw_rounded_rect(
+                panel_x1, panel_y1, panel_x2, panel_y2, 8 if is_glass else 14,
+                fill=theme['card_bg'],
+                outline=theme['card_border'],
+                width=1
+            )
 
         # Hairline between the clocks and the status strip
         self.canvas.create_line(

@@ -338,11 +338,19 @@ def run_tests(app):
                 'sun', 'moon'}
     check('raycast and glass themes are complete',
           all(required <= set(clock.THEMES[t]) for t in ('raycast', 'glass')))
-    check('glass panel body punches through to the acrylic backdrop',
-          clock.THEMES['glass']['card_bg'] == clock.THEMES['glass']['bg'])
+    check('glass card_bg is a real color (key-colored pixels swallow clicks)',
+          clock.THEMES['glass']['card_bg'] != clock.THEMES['glass']['bg'])
     app.change_theme('glass')
     check('glass theme applies without error',
           app.settings['theme'] == 'glass')
+    check('glass live pipeline engaged', app.glass_live)
+    if app.glass_live:
+        check('glass renders a live backdrop frame',
+              app.render_glass() is not None)
+    app.show_context_menu(FakeClick())
+    check('context menu opens on glass',
+          app.context_popup is not None)
+    app.context_popup.close_all()
     app.change_opacity(0.5)
     check('glass pins window alpha to 1.0 (wheel drives the tint)',
           abs(float(app.root.attributes('-alpha')) - 1.0) < 0.001)
