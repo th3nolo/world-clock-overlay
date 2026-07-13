@@ -405,10 +405,11 @@ def run_tests(app):
         check('glass renders a live backdrop frame', frame is not None)
         app.apply_glass_frame(frame)   # first frame on screen
         app.force_redraw()             # image item lands on the canvas
-        app.apply_glass_frame(app.render_glass())  # swap in place
-        check('glass frames swap in place, old frame kept referenced',
-              len(app.canvas.find_withtag('glass_bg')) == 1
-              and app._glass_photo_prev is not None)
+        photo_before = app.glass_photo
+        app.apply_glass_frame(app.render_glass())  # paste in place
+        check('glass frames update in place (same PhotoImage, item intact)',
+              app.glass_photo is photo_before
+              and len(app.canvas.find_withtag('glass_bg')) == 1)
     app.show_context_menu(FakeClick())
     check('context menu opens on glass',
           app.context_popup is not None)

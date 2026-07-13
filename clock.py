@@ -23,11 +23,12 @@ PAUSE_HOLD_SEC = 0.5
 # arrives on the overlay (leaving after a hover always hides immediately)
 PEEK_TIMEOUT_SEC = 2.5
 
-# Live liquid glass: backdrop refresh cadence (fast while dragging).
-# Rendering runs on a worker thread, so the cadence is bounded by render
-# time (~60ms), not by what the UI thread can absorb.
-GLASS_REFRESH_MS = 100
-GLASS_DRAG_REFRESH_MS = 50
+# Live liquid glass timing. A fast coordination loop applies finished
+# frames within GLASS_APPLY_MS of completion; new renders are kicked at
+# most every GLASS_IDLE_KICK_MS when idle, and immediately per motion
+# event while dragging (back-to-back, bounded only by render time).
+GLASS_APPLY_MS = 30
+GLASS_IDLE_KICK_MS = 80
 
 # Curated list of common timezones for the setup wizard dropdown
 COMMON_ZONES = [
@@ -368,7 +369,7 @@ class WorldClockApp:
         self._glass_photo_prev = None  # keeps the displayed frame GC-safe
         self._glass_after = None
         self._glass_masks = None
-        self._glass_boost = 0.0     # recent drag -> faster glass refresh
+        self._glass_last_kick = 0.0  # last render start (idle gate)
         self._glass_rendering = False  # a worker thread is busy on a frame
         self._glass_ready = None       # finished PIL frame awaiting swap
         self.next_reminder_text = None  # extra tray-tooltip line
@@ -1315,24 +1316,28 @@ class WorldClockApp:
                 pass
 
     def glass_tick(self):
-        # UI-thread side of the pipeline: apply a finished frame if one is
-        # waiting, then kick the next render on a worker thread. The heavy
-        # PIL work off the UI thread keeps the mouse and drags smooth.
+        # UI-thread coordinator: apply a finished frame within 30ms of the
+        # worker completing it, and kick idle re-renders on a slower gate.
+        # Drag motion events call kick_glass_render directly.
         self._glass_after = None
         if self.settings['theme'] != 'glass' or not self.glass_live:
             return
         if self._glass_ready is not None:
             img, self._glass_ready = self._glass_ready, None
             self.apply_glass_frame(img)
-        if not self.hidden and not self._glass_rendering:
-            self._glass_rendering = True
-            geo = self.glass_geometry()  # Tk calls must happen on this thread
-            threading.Thread(target=self._glass_worker, args=(geo,),
-                             daemon=True).start()
-        fast = time.monotonic() - self._glass_boost < 1.0
-        self._glass_after = self.root.after(
-            GLASS_DRAG_REFRESH_MS if fast else GLASS_REFRESH_MS,
-            self.glass_tick)
+        if (time.monotonic() - self._glass_last_kick) * 1000 >= GLASS_IDLE_KICK_MS:
+            self.kick_glass_render()
+        self._glass_after = self.root.after(GLASS_APPLY_MS, self.glass_tick)
+
+    def kick_glass_render(self):
+        # Start a render on the worker thread unless one is already running
+        if self._glass_rendering or self.hidden or not self.glass_live:
+            return
+        self._glass_rendering = True
+        self._glass_last_kick = time.monotonic()
+        geo = self.glass_geometry()  # Tk calls must happen on the UI thread
+        threading.Thread(target=self._glass_worker, args=(geo,),
+                         daemon=True).start()
 
     def _glass_worker(self, geo):
         try:
@@ -1347,9 +1352,15 @@ class WorldClockApp:
                 *self.get_window_size())
 
     def apply_glass_frame(self, img):
-        # Keep the frame currently on screen referenced until the swap: if
-        # the displayed PhotoImage is garbage-collected the panel blanks,
-        # which reads as the whole overlay flickering on/off
+        if (self.glass_photo is not None
+                and self.glass_photo.width() == img.width
+                and self.glass_photo.height() == img.height):
+            # In-place pixel update: no allocation, no canvas swap, and the
+            # displayed image object never changes (so it can't be GC'd)
+            self.glass_photo.paste(img)
+            return
+        # First frame or size change: create and swap, keeping the old
+        # frame referenced until the new one is on the canvas
         new_photo = ImageTk.PhotoImage(img)
         self._glass_photo_prev = self.glass_photo
         self.glass_photo = new_photo
@@ -1401,11 +1412,11 @@ class WorldClockApp:
         # Pure PIL, safe on a worker thread when geo is passed in
         x, y, w, h = geo if geo else self.glass_geometry()
         grab = ImageGrab.grab(bbox=(x, y, x + w, y + h)).convert('RGB')
-        # Process at half resolution: ~4x cheaper, visually identical blur
+        # Process at half resolution; two box blurs approximate a gaussian
+        # at a fraction of the cost (the brightness pass folded into tint)
         img = grab.resize((max(1, w // 2), max(1, h // 2)), Image.BILINEAR)
-        img = img.filter(ImageFilter.GaussianBlur(6))
+        img = img.filter(ImageFilter.BoxBlur(4)).filter(ImageFilter.BoxBlur(4))
         img = ImageEnhance.Color(img).enhance(1.5)
-        img = ImageEnhance.Brightness(img).enhance(0.9)
         img = img.resize((w, h), Image.BILINEAR)
         m = self.glass_masks(w, h, self.glass_tint_alpha())
         # Edge refraction: a slightly zoomed copy in a narrow edge band
@@ -1558,7 +1569,8 @@ class WorldClockApp:
             self.press_on_pause = False
             self.root.attributes('-alpha', 0.3)
         self.drag_moved = True
-        self._glass_boost = time.monotonic()  # glass follows the drag faster
+        if self.settings['theme'] == 'glass':
+            self.kick_glass_render()  # follow the drag as fast as renders allow
         x = self.root.winfo_x() + (event.x - self.drag_start_x)
         y = self.root.winfo_y() + (event.y - self.drag_start_y)
         w, h = self.get_window_size()
