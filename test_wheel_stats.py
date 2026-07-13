@@ -401,15 +401,17 @@ def run_tests(app):
           app.settings['theme'] == 'glass')
     check('glass live pipeline engaged', app.glass_live)
     if app.glass_live:
-        frame = app.render_glass()
+        frame = app.render_glass(force=True)
         check('glass renders a live backdrop frame', frame is not None)
         app.apply_glass_frame(frame)   # first frame on screen
         app.force_redraw()             # image item lands on the canvas
         photo_before = app.glass_photo
-        app.apply_glass_frame(app.render_glass())  # paste in place
+        app.apply_glass_frame(app.render_glass(force=True))  # paste in place
         check('glass frames update in place (same PhotoImage, item intact)',
               app.glass_photo is photo_before
               and len(app.canvas.find_withtag('glass_bg')) == 1)
+        check('unchanged backdrop render is skipped (returns None)',
+              app.render_glass() is None)
     app.show_context_menu(FakeClick())
     check('context menu opens on glass',
           app.context_popup is not None)

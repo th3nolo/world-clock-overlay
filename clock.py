@@ -29,6 +29,7 @@ PEEK_TIMEOUT_SEC = 2.5
 # event while dragging (back-to-back, bounded only by render time).
 GLASS_APPLY_MS = 30
 GLASS_IDLE_KICK_MS = 80
+GLASS_CALM_KICK_MS = 150  # gate after the backdrop stops changing
 
 # Curated list of common timezones for the setup wizard dropdown
 COMMON_ZONES = [
@@ -372,6 +373,8 @@ class WorldClockApp:
         self._glass_last_kick = 0.0  # last render start (idle gate)
         self._glass_rendering = False  # a worker thread is busy on a frame
         self._glass_ready = None       # finished PIL frame awaiting swap
+        self._glass_prev_sig = None    # backdrop thumbnail signature
+        self._glass_change_streak = 0  # consecutive unchanged renders
         self.next_reminder_text = None  # extra tray-tooltip line
         self._rem_after = None
         self._rem_dialog = None
@@ -1325,7 +1328,9 @@ class WorldClockApp:
         if self._glass_ready is not None:
             img, self._glass_ready = self._glass_ready, None
             self.apply_glass_frame(img)
-        if (time.monotonic() - self._glass_last_kick) * 1000 >= GLASS_IDLE_KICK_MS:
+        gate = (GLASS_IDLE_KICK_MS if self._glass_change_streak < 4
+                else GLASS_CALM_KICK_MS)  # static backdrop -> check lazily
+        if (time.monotonic() - self._glass_last_kick) * 1000 >= gate:
             self.kick_glass_render()
         self._glass_after = self.root.after(GLASS_APPLY_MS, self.glass_tick)
 
@@ -1341,7 +1346,12 @@ class WorldClockApp:
 
     def _glass_worker(self, geo):
         try:
-            self._glass_ready = self.render_glass(geo)
+            img = self.render_glass(geo)
+            if img is not None:
+                self._glass_ready = img
+                self._glass_change_streak = 0
+            else:
+                self._glass_change_streak += 1  # backdrop unchanged
         except Exception as e:
             print("Glass render failed:", e)
         finally:
@@ -1408,10 +1418,17 @@ class WorldClockApp:
         }
         return self._glass_masks
 
-    def render_glass(self, geo=None):
-        # Pure PIL, safe on a worker thread when geo is passed in
+    def render_glass(self, geo=None, force=False):
+        # Pure PIL, safe on a worker thread when geo is passed in.
+        # Returns None when the backdrop is identical to the last render
+        # (thumbnail signature match), so static desktops cost ~nothing.
         x, y, w, h = geo if geo else self.glass_geometry()
         grab = ImageGrab.grab(bbox=(x, y, x + w, y + h)).convert('RGB')
+        sig = (w, h, self.glass_tint_alpha(),
+               grab.resize((32, 8), Image.BILINEAR).tobytes())
+        if not force and sig == self._glass_prev_sig:
+            return None
+        self._glass_prev_sig = sig
         # Process at half resolution; two box blurs approximate a gaussian
         # at a fraction of the cost (the brightness pass folded into tint)
         img = grab.resize((max(1, w // 2), max(1, h // 2)), Image.BILINEAR)
