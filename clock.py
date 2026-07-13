@@ -949,8 +949,12 @@ class WorldClockApp:
 
         if self.is_windows:
             self.root.wm_attributes("-transparentcolor", theme['bg'])
-            self.root.attributes('-alpha', self.settings['opacity'])
-            self.apply_glass_effect(self.settings['theme'] == 'glass')
+            is_glass = self.settings['theme'] == 'glass'
+            # On glass the wheel drives the acrylic tint strength instead:
+            # layered alpha stacked on the acrylic backdrop renders wrong
+            self.root.attributes(
+                '-alpha', 1.0 if is_glass else self.settings['opacity'])
+            self.apply_glass_effect(is_glass)
         else:
             self.root.attributes('-alpha', self.settings['opacity'])
 
@@ -983,8 +987,13 @@ class WorldClockApp:
             accent = ACCENT_POLICY()
             accent.AccentState = 4 if enable else 0  # ACRYLIC_BLURBEHIND / DISABLED
             accent.AccentFlags = 2 if enable else 0
-            # AABBGGRR tint blended into the blur (dark, slightly blue)
-            accent.GradientColor = 0x991E1612 if enable else 0
+            # AABBGGRR tint blended into the blur (dark, slightly blue).
+            # The opacity setting scales the tint: wheel down = clearer
+            # glass, wheel up = more solid glass
+            op = self.settings['opacity']
+            lo, hi = OPACITY_LEVELS[0], OPACITY_LEVELS[-1]
+            tint_a = int(0x38 + (op - lo) * (0xE0 - 0x38) / (hi - lo))
+            accent.GradientColor = ((tint_a << 24) | 0x1E1612) if enable else 0
             data = WCA_DATA()
             data.Attribute = 19  # WCA_ACCENT_POLICY
             data.Data = ctypes.cast(ctypes.pointer(accent), ctypes.c_void_p)

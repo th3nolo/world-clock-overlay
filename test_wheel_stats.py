@@ -343,9 +343,15 @@ def run_tests(app):
     app.change_theme('glass')
     check('glass theme applies without error',
           app.settings['theme'] == 'glass')
+    app.change_opacity(0.5)
+    check('glass pins window alpha to 1.0 (wheel drives the tint)',
+          abs(float(app.root.attributes('-alpha')) - 1.0) < 0.001)
     app.change_theme('raycast')
     check('raycast theme applies without error',
           app.settings['theme'] == 'raycast')
+    check('non-glass themes take alpha from opacity again',
+          abs(float(app.root.attributes('-alpha')) - 0.5) < 0.001)
+    app.change_opacity(0.85)
     app.change_theme('dark')
 
     # --- Text shadow: draw_text paints a shadow copy behind the text ---
