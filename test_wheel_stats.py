@@ -441,6 +441,32 @@ def run_tests(app):
         check('context menu is capture-excluded on glass',
               window_affinity(app.context_popup.win) == 0x11)
     app.context_popup.close_all()
+
+    # --- DEL demo mode: capturable overlay, frozen glass ---
+    if app.glass_live:
+        app.is_pointer_over_window = lambda: True
+        app.is_del_down = lambda: True
+        app.del_was_down = False
+        app.poll_pause_hotkey()
+        check('DEL tap enters demo mode', app.demo_mode)
+        check('demo mode makes the overlay capturable',
+              window_affinity(app.root) == 0)
+        app.kick_glass_render()
+        check('glass rendering frozen in demo mode',
+              not app._glass_rendering)
+        app.show_context_menu(FakeClick())
+        check('menus are capturable in demo mode',
+              window_affinity(app.context_popup.win) == 0)
+        app.context_popup.close_all()
+        app.is_del_down = lambda: False
+        app.poll_pause_hotkey()
+        app.is_del_down = lambda: True
+        app.poll_pause_hotkey()
+        check('DEL tap again restores privacy',
+              not app.demo_mode and window_affinity(app.root) == 0x11)
+        app.is_del_down = lambda: False
+        app.poll_pause_hotkey()
+        app.is_pointer_over_window = lambda: False
     app.change_opacity(0.5)
     check('glass pins window alpha to 1.0 (wheel drives the tint)',
           abs(float(app.root.attributes('-alpha')) - 1.0) < 0.001)

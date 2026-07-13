@@ -107,6 +107,7 @@ The script installs Pillow and pystray if they are missing, then launches `pytho
 - **Move**: click and drag anywhere on the overlay.
 - **Pause/resume the work timer**: click the ⏱ timer text, or hold Space for 0.5 s while hovering the overlay.
 - **Hide to tray**: tap H while hovering the overlay, or right-click → "Hide Overlay". Single-click the tray icon to peek (fades away when the mouse leaves the overlay); double-click it to bring the overlay back permanently.
+- **Demo mode (Liquid Glass)**: tap DEL while hovering — the overlay and its menus become visible to screenshots/recordings, a red dot shows next to the timer, and the glass freezes its backdrop sample (it re-samples after you drag it). Tap DEL again to go private.
 - **Toggle layout**: double-click to switch between horizontal and vertical.
 - **Translucency**: scroll the mouse wheel while hovering the overlay (steps through 30/50/70/85/100%).
 - **Reminders**: right-click → "Add Reminder…" (also in the tray menu); pick the label, time zone, date, time in that zone, and how many minutes ahead to warn.

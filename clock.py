@@ -403,6 +403,8 @@ class WorldClockApp:
         self.peek_hovered = False
         self.peek_start = 0.0
         self.h_was_down = False     # tap H over the overlay to hide it
+        self.del_was_down = False   # tap DEL over the overlay: demo mode
+        self.demo_mode = False      # glass visible to captures, frozen
         self._tray_click_after = None
         self.tray_tooltip_counter = 9  # first refresh right after startup
         self.glass_live = False     # live-rendered liquid glass active
@@ -664,6 +666,9 @@ class WorldClockApp:
     def is_h_down(self):
         return self.is_key_down(0x48)
 
+    def is_del_down(self):
+        return self.is_key_down(0x2E)
+
     def poll_pause_hotkey(self):
         # A withdrawn window still reports stale geometry, so hover-driven
         # hotkeys must be dead while hidden
@@ -688,6 +693,13 @@ class WorldClockApp:
         if h_down and not self.h_was_down and over:
             self.hide_overlay()
         self.h_was_down = h_down
+
+        # DEL tapped over the overlay: toggle demo mode (glass becomes
+        # visible to captures; its backdrop sample freezes meanwhile)
+        del_down = self.is_del_down()
+        if del_down and not self.del_was_down and over:
+            self.toggle_demo_mode()
+        self.del_was_down = del_down
 
         self.draw_hold_bar()
         # Animate at ~60fps during a hold, sample lazily otherwise
@@ -1334,8 +1346,9 @@ class WorldClockApp:
     def match_capture_affinity(self, win):
         # On live glass the overlay is invisible to screenshots and screen
         # shares; windows it spawns (menus, alarms, dialogs) inherit that,
-        # so a capture never shows a menu floating over nothing
-        if not self.glass_live:
+        # so a capture never shows a menu floating over nothing. Demo mode
+        # suspends the exclusion everywhere.
+        if not self.glass_live or self.demo_mode:
             return
         try:
             import ctypes
@@ -1371,6 +1384,7 @@ class WorldClockApp:
             self._glass_after = None
         self.glass_photo = None
         self._glass_masks = None
+        self.demo_mode = False
         if self.glass_live:
             self.glass_live = False
             try:
@@ -1400,8 +1414,11 @@ class WorldClockApp:
         self._glass_after = self.root.after(GLASS_APPLY_MS, self.glass_tick)
 
     def kick_glass_render(self):
-        # Start a render on the worker thread unless one is already running
-        if self._glass_rendering or self.hidden or not self.glass_live:
+        # Start a render on the worker thread unless one is already running.
+        # Demo mode freezes rendering: the window is capturable then, so a
+        # grab would capture our own glass (feedback loop).
+        if (self._glass_rendering or self.hidden or not self.glass_live
+                or self.demo_mode):
             return
         self._glass_rendering = True
         self._glass_last_kick = time.monotonic()
@@ -1438,7 +1455,8 @@ class WorldClockApp:
         # start the next render immediately instead of waiting for a UI
         # tick, so throughput is bounded only by render time (~20ms)
         if (self._glass_change_streak == 0 and not self.hidden
-                and self.glass_live and self.settings['theme'] == 'glass'):
+                and self.glass_live and not self.demo_mode
+                and self.settings['theme'] == 'glass'):
             self._glass_last_kick = time.monotonic()
             threading.Thread(target=self._glass_worker,
                              args=(self._glass_geo,), daemon=True).start()
@@ -1465,6 +1483,58 @@ class WorldClockApp:
         if hasattr(self, 'canvas'):
             for iid in self.canvas.find_withtag('glass_bg'):
                 self.canvas.itemconfig(iid, image=new_photo)
+
+    def toggle_demo_mode(self):
+        # Demo mode: make the glass overlay (and its popups) visible to
+        # screenshots and recordings. The glass freezes on one last fresh
+        # frame because a capturable window would grab itself.
+        if not self.glass_live:
+            return  # only meaningful on live glass
+        import ctypes
+        if not self.demo_mode:
+            try:
+                img = self.render_glass(force=True)
+                if img is not None:
+                    self.apply_glass_frame(img)
+            except Exception:
+                pass
+            self.demo_mode = True
+            try:
+                ctypes.windll.user32.SetWindowDisplayAffinity(
+                    self._root_hwnd(), 0)
+            except Exception:
+                pass
+        else:
+            self.demo_mode = False
+            try:
+                ctypes.windll.user32.SetWindowDisplayAffinity(
+                    self._root_hwnd(), 0x11)
+            except Exception:
+                pass
+            self.kick_glass_render()
+        self.force_redraw()  # demo dot appears/disappears immediately
+
+    def demo_snapshot_refresh(self):
+        # One-shot re-sample while demoing (e.g. after a drag): briefly
+        # re-exclude, grab fresh, then become capturable again. A recorder
+        # may miss the overlay for a frame or two — fine at drag end.
+        import ctypes
+        try:
+            ctypes.windll.user32.SetWindowDisplayAffinity(
+                self._root_hwnd(), 0x11)
+            self.root.update_idletasks()
+            time.sleep(0.03)
+            img = self.render_glass(force=True)
+            if img is not None:
+                self.apply_glass_frame(img)
+        except Exception:
+            pass
+        finally:
+            try:
+                ctypes.windll.user32.SetWindowDisplayAffinity(
+                    self._root_hwnd(), 0)
+            except Exception:
+                pass
 
     def glass_tint_alpha(self):
         # Wheel position maps to tint strength: down = clearer glass
@@ -1688,6 +1758,9 @@ class WorldClockApp:
         if self.press_on_pause and not self.drag_moved:
             self.toggle_pause()
         self.press_on_pause = False
+        if (self.drag_moved and self.demo_mode and self.glass_live
+                and self.settings['theme'] == 'glass'):
+            self.demo_snapshot_refresh()  # frozen glass matches new spot
 
     def do_drag(self, event):
         if (not self.drag_moved
@@ -2102,6 +2175,12 @@ class WorldClockApp:
         # Generous hit padding: the timer text is small, the target shouldn't be
         tb = self.canvas.bbox(timer_id)
         self.pause_btn_bbox = (tb[0] - 10, tb[1] - 8, tb[2] + 10, tb[3] + 8)
+
+        if self.demo_mode:
+            # Red dot: the overlay is currently visible to captures
+            cy = (tb[1] + tb[3]) / 2
+            self.canvas.create_oval(tb[2] + 8, cy - 3, tb[2] + 14, cy + 3,
+                                    fill='#e05561', outline='')
 
         # Tray tooltip mirrors the stats (~every 2s), so hovering the icon
         # answers "how much today?" even while the overlay is hidden.
