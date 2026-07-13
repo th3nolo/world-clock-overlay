@@ -201,8 +201,15 @@ def run_tests(app):
     # --- Click on the timer: coordinate hit-test in the drag handlers ---
     app.force_redraw()  # ensure pause_btn_bbox reflects the current frame
     bx1, by1, bx2, by2 = app.pause_btn_bbox
-    on_btn = type('E', (), {'x': int((bx1 + bx2) / 2), 'y': int((by1 + by2) / 2)})
-    off_btn = type('E', (), {'x': 2, 'y': 2})
+
+    def fake_click(x, y):
+        return type('E', (), {
+            'x': x, 'y': y,
+            'x_root': app.root.winfo_x() + x,
+            'y_root': app.root.winfo_y() + y})
+
+    on_btn = fake_click(int((bx1 + bx2) / 2), int((by1 + by2) / 2))
+    off_btn = fake_click(2, 2)
 
     app.start_drag(on_btn)
     app.stop_drag(on_btn)
@@ -216,7 +223,7 @@ def run_tests(app):
     check('click elsewhere does not toggle', not app.paused)
 
     app.start_drag(on_btn)
-    moved = type('E', (), {'x': on_btn.x + 40, 'y': on_btn.y})
+    moved = fake_click(on_btn.x + 40, on_btn.y)
     app.do_drag(moved)
     app.stop_drag(moved)
     check('drag starting on the timer moves, never toggles', not app.paused)
@@ -410,8 +417,14 @@ def run_tests(app):
         check('glass frames update in place (same PhotoImage, item intact)',
               app.glass_photo is photo_before
               and len(app.canvas.find_withtag('glass_bg')) == 1)
+        from PIL import Image as PILImage
+        orig_grab = clock.grab_region_fast
+        clock.grab_region_fast = (
+            lambda x, y, w, h: PILImage.new('RGB', (w, h), '#123456'))
+        app.render_glass(force=True)  # prime the signature, constant backdrop
         check('unchanged backdrop render is skipped (returns None)',
               app.render_glass() is None)
+        clock.grab_region_fast = orig_grab
     app.show_context_menu(FakeClick())
     check('context menu opens on glass',
           app.context_popup is not None)

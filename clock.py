@@ -25,11 +25,47 @@ PEEK_TIMEOUT_SEC = 2.5
 
 # Live liquid glass timing. A fast coordination loop applies finished
 # frames within GLASS_APPLY_MS of completion; new renders are kicked at
-# most every GLASS_IDLE_KICK_MS when idle, and immediately per motion
-# event while dragging (back-to-back, bounded only by render time).
-GLASS_APPLY_MS = 30
-GLASS_IDLE_KICK_MS = 80
+# most every GLASS_IDLE_KICK_MS when the backdrop is changing, and
+# immediately per motion event while dragging (back-to-back, bounded
+# only by render time: ~20ms with the direct-BitBlt grab -> ~40-50fps).
+GLASS_APPLY_MS = 16
+GLASS_IDLE_KICK_MS = 25
 GLASS_CALM_KICK_MS = 150  # gate after the backdrop stops changing
+
+
+def grab_region_fast(x, y, w, h):
+    """BitBlt of just the region. Pillow's ImageGrab copies the entire
+    virtual desktop and crops (37ms on this machine); this is ~7ms."""
+    import ctypes
+    gdi32 = ctypes.windll.gdi32
+    sdc = gdi32.CreateDCW('DISPLAY', None, None, None)
+    mdc = gdi32.CreateCompatibleDC(sdc)
+    bmp = gdi32.CreateCompatibleBitmap(sdc, w, h)
+    old = gdi32.SelectObject(mdc, bmp)
+    gdi32.BitBlt(mdc, 0, 0, w, h, sdc, x, y, 0x00CC0020)  # SRCCOPY
+
+    class BIH(ctypes.Structure):
+        _fields_ = [('biSize', ctypes.c_uint32), ('biWidth', ctypes.c_int32),
+                    ('biHeight', ctypes.c_int32), ('biPlanes', ctypes.c_uint16),
+                    ('biBitCount', ctypes.c_uint16),
+                    ('biCompression', ctypes.c_uint32),
+                    ('biSizeImage', ctypes.c_uint32),
+                    ('biXPelsPerMeter', ctypes.c_int32),
+                    ('biYPelsPerMeter', ctypes.c_int32),
+                    ('biClrUsed', ctypes.c_uint32),
+                    ('biClrImportant', ctypes.c_uint32)]
+
+    bih = BIH()
+    bih.biSize = ctypes.sizeof(BIH)
+    bih.biWidth, bih.biHeight = w, -h  # negative height = top-down rows
+    bih.biPlanes, bih.biBitCount = 1, 32
+    buf = ctypes.create_string_buffer(w * h * 4)
+    gdi32.GetDIBits(mdc, bmp, 0, h, buf, ctypes.byref(bih), 0)
+    gdi32.SelectObject(mdc, old)
+    gdi32.DeleteObject(bmp)
+    gdi32.DeleteDC(mdc)
+    gdi32.DeleteDC(sdc)
+    return Image.frombuffer('RGB', (w, h), buf.raw, 'raw', 'BGRX', 0, 1)
 
 # Curated list of common timezones for the setup wizard dropdown
 COMMON_ZONES = [
@@ -358,6 +394,8 @@ class WorldClockApp:
         self.pause_btn_bbox = None  # screen hit-area of the timer text
         self.press_on_pause = False
         self.drag_moved = False
+        self._drag_off_x = 0  # pointer-to-window offset (absolute drag)
+        self._drag_off_y = 0
         self.hidden = False         # overlay withdrawn, tray icon remains
         self.peeking = False        # shown temporarily until the mouse leaves
         self.peek_hovered = False
@@ -375,6 +413,7 @@ class WorldClockApp:
         self._glass_ready = None       # finished PIL frame awaiting swap
         self._glass_prev_sig = None    # backdrop thumbnail signature
         self._glass_change_streak = 0  # consecutive unchanged renders
+        self._glass_geo = None         # geometry cache for the worker chain
         self.next_reminder_text = None  # extra tray-tooltip line
         self._rem_after = None
         self._rem_dialog = None
@@ -424,6 +463,9 @@ class WorldClockApp:
         # canvas item events are unreliable here because the 200ms redraw
         # deletes and recreates every item, dropping mid-click events
         self.canvas.bind('<Motion>', self.on_canvas_motion)
+
+        # Glass frames announce themselves from the worker thread
+        self.root.bind('<<GlassFrame>>', self._apply_ready_frame)
 
         # Create Right-Click Menu
         self.create_context_menu()
@@ -1325,9 +1367,8 @@ class WorldClockApp:
         self._glass_after = None
         if self.settings['theme'] != 'glass' or not self.glass_live:
             return
-        if self._glass_ready is not None:
-            img, self._glass_ready = self._glass_ready, None
-            self.apply_glass_frame(img)
+        self._glass_geo = self.glass_geometry()  # fresh for worker self-chain
+        self._apply_ready_frame()  # fallback; usually <<GlassFrame>> already did
         gate = (GLASS_IDLE_KICK_MS if self._glass_change_streak < 4
                 else GLASS_CALM_KICK_MS)  # static backdrop -> check lazily
         if (time.monotonic() - self._glass_last_kick) * 1000 >= gate:
@@ -1341,8 +1382,14 @@ class WorldClockApp:
         self._glass_rendering = True
         self._glass_last_kick = time.monotonic()
         geo = self.glass_geometry()  # Tk calls must happen on the UI thread
+        self._glass_geo = geo
         threading.Thread(target=self._glass_worker, args=(geo,),
                          daemon=True).start()
+
+    def _apply_ready_frame(self, event=None):
+        if self._glass_ready is not None:
+            img, self._glass_ready = self._glass_ready, None
+            self.apply_glass_frame(img)
 
     def _glass_worker(self, geo):
         try:
@@ -1350,12 +1397,28 @@ class WorldClockApp:
             if img is not None:
                 self._glass_ready = img
                 self._glass_change_streak = 0
+                try:
+                    # Thread-safe wake-up: apply the frame as soon as the
+                    # event loop breathes, not at timer granularity
+                    self.root.event_generate('<<GlassFrame>>', when='tail')
+                except Exception:
+                    pass  # the glass_tick fallback will apply it
             else:
                 self._glass_change_streak += 1  # backdrop unchanged
         except Exception as e:
             print("Glass render failed:", e)
-        finally:
             self._glass_rendering = False
+            return
+        # Self-chain while the backdrop is actively changing (video, drag):
+        # start the next render immediately instead of waiting for a UI
+        # tick, so throughput is bounded only by render time (~20ms)
+        if (self._glass_change_streak == 0 and not self.hidden
+                and self.glass_live and self.settings['theme'] == 'glass'):
+            self._glass_last_kick = time.monotonic()
+            threading.Thread(target=self._glass_worker,
+                             args=(self._glass_geo,), daemon=True).start()
+            return  # _glass_rendering stays True for the chained render
+        self._glass_rendering = False
 
     def glass_geometry(self):
         return (self.root.winfo_rootx(), self.root.winfo_rooty(),
@@ -1423,7 +1486,10 @@ class WorldClockApp:
         # Returns None when the backdrop is identical to the last render
         # (thumbnail signature match), so static desktops cost ~nothing.
         x, y, w, h = geo if geo else self.glass_geometry()
-        grab = ImageGrab.grab(bbox=(x, y, x + w, y + h)).convert('RGB')
+        try:
+            grab = grab_region_fast(x, y, w, h)
+        except Exception:
+            grab = ImageGrab.grab(bbox=(x, y, x + w, y + h)).convert('RGB')
         sig = (w, h, self.glass_tint_alpha(),
                grab.resize((32, 8), Image.BILINEAR).tobytes())
         if not force and sig == self._glass_prev_sig:
@@ -1564,6 +1630,12 @@ class WorldClockApp:
     def start_drag(self, event):
         self.drag_start_x = event.x
         self.drag_start_y = event.y
+        # Anchor in absolute screen coordinates: relative math (winfo_x +
+        # pointer delta) reads a stale window position while the window
+        # manager is still applying the previous move, which makes the
+        # window overshoot and oscillate during fast drags
+        self._drag_off_x = event.x_root - self.root.winfo_x()
+        self._drag_off_y = event.y_root - self.root.winfo_y()
         self.drag_moved = False
         self.press_on_pause = self.is_over_pause_btn(event.x, event.y)
         if not self.press_on_pause:
@@ -1588,10 +1660,9 @@ class WorldClockApp:
         self.drag_moved = True
         if self.settings['theme'] == 'glass':
             self.kick_glass_render()  # follow the drag as fast as renders allow
-        x = self.root.winfo_x() + (event.x - self.drag_start_x)
-        y = self.root.winfo_y() + (event.y - self.drag_start_y)
         w, h = self.get_window_size()
-        x, y = self.constrain_coordinates(x, y, w, h)
+        x, y = self.constrain_coordinates(event.x_root - self._drag_off_x,
+                                          event.y_root - self._drag_off_y, w, h)
         self.root.geometry(f"+{x}+{y}")
 
     # ==========================================================================
