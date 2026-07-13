@@ -17,7 +17,7 @@ A Python desktop overlay, built with Tkinter, that shows your local time and up 
 - **Themed context menu**: the right-click menu is drawn with the active theme (panel colors, border, hover accent) instead of the native white system menu, and restyles instantly when you switch themes.
 - **Hide to tray**: tap H over the overlay to hide it instantly (instant on purpose: holding a key leaks key-repeat into the window you're typing in); the tray icon stays. A single click on the tray icon peeks — the overlay shows until the mouse leaves it, then fades out over half a second (moving back onto it cancels the fade) — and a double click brings it back for good.
 - **Tray tooltip**: hovering the tray icon shows the session timer plus today's and the month's hours — no click needed, works while the overlay is hidden.
-- **Four themes**: Frosted Dark, Frosted Light, Cyberpunk Neon, and Nordic Frost.
+- **Six themes**: Frosted Dark, Frosted Light, Cyberpunk Neon, Nordic Frost, Raycast Dark (flat near-black, hairline borders), and Liquid Glass — real Windows acrylic blur behind the panel, so text stays readable over any window. Liquid Glass looks best at 100% opacity.
 - **Translucency**: set the overlay between 30% and 100% opacity from the right-click menu, or scroll the mouse wheel while hovering the overlay.
 - **Readable on light backgrounds**: secondary text (labels, dates, status bar) is near-white — near-black in the light theme — and every text is drawn with a 1px contrast shadow, so the translucent overlay stays legible over white windows.
 - **Click-through (Windows)**: clicks on the empty background pass through to the window underneath.
@@ -37,6 +37,12 @@ A Python desktop overlay, built with Tkinter, that shows your local time and up 
 | Frosted Light | Cyberpunk Neon | Nordic Frost |
 | --- | --- | --- |
 | ![Frosted Light theme](screenshots/theme-light.png) | ![Cyberpunk Neon theme](screenshots/theme-cyberpunk.png) | ![Nordic Frost theme](screenshots/theme-nordic.png) |
+
+Over a busy background (Raycast is near-opaque flat; Liquid Glass blurs what's behind it):
+
+| Raycast Dark | Liquid Glass |
+| --- | --- |
+| ![Raycast Dark theme](screenshots/theme-raycast.png) | ![Liquid Glass theme](screenshots/theme-glass.png) |
 
 ### Setup wizard
 

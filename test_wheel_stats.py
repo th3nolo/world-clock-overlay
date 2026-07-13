@@ -332,6 +332,22 @@ def run_tests(app):
     app.context_popup.close_all()
     app.resume_work()
 
+    # --- Raycast and Liquid Glass themes ---
+    required = {'bg', 'card_bg', 'card_border', 'divider', 'text_main',
+                'text_muted', 'text_faded', 'text_shadow', 'accent',
+                'sun', 'moon'}
+    check('raycast and glass themes are complete',
+          all(required <= set(clock.THEMES[t]) for t in ('raycast', 'glass')))
+    check('glass panel body punches through to the acrylic backdrop',
+          clock.THEMES['glass']['card_bg'] == clock.THEMES['glass']['bg'])
+    app.change_theme('glass')
+    check('glass theme applies without error',
+          app.settings['theme'] == 'glass')
+    app.change_theme('raycast')
+    check('raycast theme applies without error',
+          app.settings['theme'] == 'raycast')
+    app.change_theme('dark')
+
     # --- Text shadow: draw_text paints a shadow copy behind the text ---
     before = len(app.canvas.find_all())
     text_id = app.draw_text(50, 50, text='probe', fill='#ffffff', font=('Outfit', 8))

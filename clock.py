@@ -127,6 +127,37 @@ THEMES = {
         'accent': '#88c0d0',
         'sun': '#ebcb8b',
         'moon': '#81a1c1'
+    },
+    # Raycast-style: near-black, hairline borders, quiet grays, warm accent.
+    # Meant to run at high opacity (the whole point is the crisp flat look).
+    'raycast': {
+        'bg': '#010101',
+        'card_bg': '#0d0d10',
+        'card_border': '#2e2e36',
+        'divider': '#1f1f26',
+        'text_main': '#f4f4f6',
+        'text_muted': '#b4b4bd',
+        'text_faded': '#8e8e98',
+        'text_shadow': '#000000',
+        'accent': '#ff6363',
+        'sun': '#e8c47a',
+        'moon': '#8fa8e8'
+    },
+    # Liquid glass: card_bg equals the transparent key color, so the panel
+    # body punches through to the Windows acrylic backdrop (real blur);
+    # text and borders are drawn on top of the glass.
+    'glass': {
+        'bg': '#010101',
+        'card_bg': '#010101',
+        'card_border': '#c3c9d6',
+        'divider': '#8b93a3',
+        'text_main': '#ffffff',
+        'text_muted': '#eef0f6',
+        'text_faded': '#d9dce6',
+        'text_shadow': '#000000',
+        'accent': '#9ec2ff',
+        'sun': '#ffe1a0',
+        'moon': '#bcd0ff'
     }
 }
 
@@ -669,8 +700,9 @@ class WorldClockApp:
         frac = min(1.0, (time.monotonic() - self.space_hold_start) / PAUSE_HOLD_SEC)
         eased = frac * frac * (3 - 2 * frac)  # gentle start, gentle landing
         w, h = self.get_window_size()
+        margin = 1 if self.settings['theme'] == 'glass' else 10
         status_h = 24 if self.settings['layout'] == 'horizontal' else 52
-        sep_y = (h - 10) - status_h
+        sep_y = (h - margin) - status_h
         x1, x2 = 16, w - 16
         cx = (x1 + x2) / 2
         accent = self.get_theme()['accent']
@@ -914,12 +946,58 @@ class WorldClockApp:
     def apply_transparency(self):
         theme = self.get_theme()
         self.root.config(bg=theme['bg'])
-        
+
         if self.is_windows:
             self.root.wm_attributes("-transparentcolor", theme['bg'])
             self.root.attributes('-alpha', self.settings['opacity'])
+            self.apply_glass_effect(self.settings['theme'] == 'glass')
         else:
             self.root.attributes('-alpha', self.settings['opacity'])
+
+    def apply_glass_effect(self, enable):
+        # Windows acrylic backdrop (SetWindowCompositionAttribute) behind the
+        # window: pixels of the transparent key color reveal blurred glass
+        # instead of plain desktop. Win11 also rounds the window corners so
+        # the slab itself has the panel shape. Undocumented but stable API;
+        # everything is guarded so failure just means no blur.
+        if not self.is_windows:
+            return
+        try:
+            import ctypes
+
+            class ACCENT_POLICY(ctypes.Structure):
+                _fields_ = [('AccentState', ctypes.c_uint),
+                            ('AccentFlags', ctypes.c_uint),
+                            ('GradientColor', ctypes.c_uint),
+                            ('AnimationId', ctypes.c_uint)]
+
+            class WCA_DATA(ctypes.Structure):
+                _fields_ = [('Attribute', ctypes.c_int),
+                            ('Data', ctypes.c_void_p),
+                            ('SizeOfData', ctypes.c_size_t)]
+
+            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+            if not hwnd:
+                hwnd = self.root.winfo_id()
+
+            accent = ACCENT_POLICY()
+            accent.AccentState = 4 if enable else 0  # ACRYLIC_BLURBEHIND / DISABLED
+            accent.AccentFlags = 2 if enable else 0
+            # AABBGGRR tint blended into the blur (dark, slightly blue)
+            accent.GradientColor = 0x991E1612 if enable else 0
+            data = WCA_DATA()
+            data.Attribute = 19  # WCA_ACCENT_POLICY
+            data.Data = ctypes.cast(ctypes.pointer(accent), ctypes.c_void_p)
+            data.SizeOfData = ctypes.sizeof(accent)
+            ctypes.windll.user32.SetWindowCompositionAttribute(
+                hwnd, ctypes.byref(data))
+
+            # DWMWA_WINDOW_CORNER_PREFERENCE (Win11; harmless no-op on Win10)
+            pref = ctypes.c_int(2 if enable else 0)  # ROUND / DEFAULT
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, 33, ctypes.byref(pref), 4)
+        except Exception as e:
+            print("Glass effect unavailable:", e)
 
     # ==========================================================================
     # Window Layout Positioning
@@ -1245,15 +1323,19 @@ class WorldClockApp:
         clocks = self.settings.get('clocks', [])
         n = max(len(clocks), 1)
 
-        # Single rounded panel holding all clocks + the status strip
-        panel_x1, panel_y1 = 10, 10
-        panel_x2, panel_y2 = w - 10, h - 10
+        # Single rounded panel holding all clocks + the status strip.
+        # Glass: the acrylic slab is the whole window (system-rounded), so
+        # the border hugs the window edge instead of floating 10px inside
+        is_glass = self.settings['theme'] == 'glass'
+        margin = 1 if is_glass else 10
+        panel_x1, panel_y1 = margin, margin
+        panel_x2, panel_y2 = w - margin, h - margin
         # The narrow vertical window stacks the status into three lines
         status_h = 24 if layout == 'horizontal' else 52
         status_sep_y = panel_y2 - status_h
 
         self.draw_rounded_rect(
-            panel_x1, panel_y1, panel_x2, panel_y2, 14,
+            panel_x1, panel_y1, panel_x2, panel_y2, 8 if is_glass else 14,
             fill=theme['card_bg'],
             outline=theme['card_border'],
             width=1
@@ -1512,6 +1594,8 @@ class WorldClockApp:
                 ('command', "Frosted Light", lambda: self.change_theme('light')),
                 ('command', "Cyberpunk Neon", lambda: self.change_theme('cyberpunk')),
                 ('command', "Nordic Frost", lambda: self.change_theme('nordic')),
+                ('command', "Raycast Dark", lambda: self.change_theme('raycast')),
+                ('command', "Liquid Glass", lambda: self.change_theme('glass')),
             ]),
             ('separator',),
             ('command', "Exit App", self.on_exit),
@@ -1622,7 +1706,9 @@ class WorldClockApp:
                 item('Frosted Dark', lambda icon, item: on_change_theme(icon, item, 'dark')),
                 item('Frosted Light', lambda icon, item: on_change_theme(icon, item, 'light')),
                 item('Cyberpunk Neon', lambda icon, item: on_change_theme(icon, item, 'cyberpunk')),
-                item('Nordic Frost', lambda icon, item: on_change_theme(icon, item, 'nordic'))
+                item('Nordic Frost', lambda icon, item: on_change_theme(icon, item, 'nordic')),
+                item('Raycast Dark', lambda icon, item: on_change_theme(icon, item, 'raycast')),
+                item('Liquid Glass', lambda icon, item: on_change_theme(icon, item, 'glass'))
             )),
             pystray.Menu.SEPARATOR,
             item('Exit App', on_exit)
