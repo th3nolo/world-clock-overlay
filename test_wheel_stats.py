@@ -241,6 +241,14 @@ def run_tests(app):
     app.peek_watch()   # mouse leaves
     check('peek hides when the mouse leaves', app.hidden)
 
+    app.hide_overlay()
+    app._tray_single_click()
+    app.is_pointer_over_window = lambda: False
+    app.peek_hovered = False
+    app.peek_start -= clock.PEEK_TIMEOUT_SEC + 1  # pretend time passed
+    app.peek_watch()
+    check('peek times out if the mouse never arrives', app.hidden)
+
     app.show_overlay()
     check('show restores the window',
           not app.hidden and app.root.state() == 'normal')

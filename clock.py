@@ -19,6 +19,10 @@ DB_FILE = os.path.join(os.path.expanduser('~'), '.world_clock_work_tracker.db')
 # must never count even when the pointer is parked over the overlay.
 PAUSE_HOLD_SEC = 0.5
 
+# After a tray-click peek, hide again this quickly if the mouse never
+# arrives on the overlay (leaving after a hover always hides immediately)
+PEEK_TIMEOUT_SEC = 2.5
+
 # Curated list of common timezones for the setup wizard dropdown
 COMMON_ZONES = [
     ("Local System Time", "Local"),
@@ -620,7 +624,7 @@ class WorldClockApp:
             self.peek_hovered = True
         left_after_hover = self.peek_hovered and not over
         never_arrived = (not self.peek_hovered
-                         and time.monotonic() - self.peek_start > 6.0)
+                         and time.monotonic() - self.peek_start > PEEK_TIMEOUT_SEC)
         if left_after_hover or never_arrived:
             self.hide_overlay()
             return
