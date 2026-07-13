@@ -17,6 +17,7 @@ A Python desktop overlay, built with Tkinter, that shows your local time and up 
 - **Themed context menu**: the right-click menu is drawn with the active theme (panel colors, border, hover accent) instead of the native white system menu, and restyles instantly when you switch themes.
 - **Hide to tray**: tap H over the overlay to hide it instantly (instant on purpose: holding a key leaks key-repeat into the window you're typing in); the tray icon stays. A single click on the tray icon peeks — the overlay shows until the mouse leaves it, then fades out over half a second (moving back onto it cancels the fade) — and a double click brings it back for good.
 - **Tray tooltip**: hovering the tray icon shows the session timer plus today's and the month's hours — no click needed, works while the overlay is hidden.
+- **Timezone-pinned reminders**: right-click → "Add Reminder…" for one-shot alarms like "interview at 14:00 America/Los_Angeles". The moment is computed in that zone (daylight saving handled automatically), you get a tray warning + beep a chosen number of minutes ahead, and a themed always-on-top card with Dismiss / Snooze when it arrives. The next reminder also shows in the tray tooltip.
 - **Six themes**: Frosted Dark, Frosted Light, Cyberpunk Neon, Nordic Frost, Raycast Dark (flat near-black, hairline borders), and Liquid Glass — a live-rendered glass panel: the app samples what's behind the window and re-renders it with blur, saturation, edge refraction, and a specular rim, so text stays readable over anything. On Liquid Glass the scroll wheel adjusts the glass tint instead of window opacity. Two side notes: the backdrop refreshes ~10×/s on a background thread (faster while dragging, paused while hidden), and while this theme is active the overlay is invisible in screenshots and screen shares (it excludes itself from capture to sample its backdrop).
 - **Translucency**: set the overlay between 30% and 100% opacity from the right-click menu, or scroll the mouse wheel while hovering the overlay.
 - **Readable on light backgrounds**: secondary text (labels, dates, status bar) is near-white — near-black in the light theme — and every text is drawn with a 1px contrast shadow, so the translucent overlay stays legible over white windows.
@@ -108,6 +109,7 @@ The script installs Pillow and pystray if they are missing, then launches `pytho
 - **Hide to tray**: tap H while hovering the overlay, or right-click → "Hide Overlay". Single-click the tray icon to peek (fades away when the mouse leaves the overlay); double-click it to bring the overlay back permanently.
 - **Toggle layout**: double-click to switch between horizontal and vertical.
 - **Translucency**: scroll the mouse wheel while hovering the overlay (steps through 30/50/70/85/100%).
+- **Reminders**: right-click → "Add Reminder…" (also in the tray menu); pick the label, time zone, date, time in that zone, and how many minutes ahead to warn.
 - **Options**: right-click the overlay (or the tray icon) for time format, seconds, translucency, themes, and "Reset Clocks Setup Wizard".
 
 ## Tests

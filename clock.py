@@ -5,7 +5,7 @@ import time
 import platform
 import sqlite3
 import threading
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from zoneinfo import ZoneInfo
 import tkinter as tk
 from tkinter import messagebox, ttk
@@ -371,6 +371,10 @@ class WorldClockApp:
         self._glass_boost = 0.0     # recent drag -> faster glass refresh
         self._glass_rendering = False  # a worker thread is busy on a frame
         self._glass_ready = None       # finished PIL frame awaiting swap
+        self.next_reminder_text = None  # extra tray-tooltip line
+        self._rem_after = None
+        self._rem_dialog = None
+        self._last_alarm = None
         self.stats_cache = None  # (month, today, unique_days, base_seconds, today_seconds)
 
         # If no clocks are configured (First run), show setup wizard
@@ -432,6 +436,11 @@ class WorldClockApp:
         if getattr(self, '_poll_after', None) is not None:
             self.root.after_cancel(self._poll_after)
         self.poll_pause_hotkey()
+
+        # Timezone-pinned reminders, checked once a second
+        if self._rem_after is not None:
+            self.root.after_cancel(self._rem_after)
+        self.check_reminders()
 
         # Start System Tray Icon
         if HAS_TRAY:
@@ -692,6 +701,278 @@ class WorldClockApp:
             '-alpha', self.settings['opacity'] * (1 - frac) + 0.05 * frac)
         self.root.after(25, lambda: self.fade_out_and_hide(frac + 0.05))
 
+    # ==========================================================================
+    # Timezone-pinned Reminders
+    #
+    # A reminder is "14:00 on 2026-07-15 in America/Los_Angeles" — the target
+    # instant is computed in that zone (DST handled by zoneinfo), warned
+    # about `lead` minutes ahead (tray toast + beep), and announced with a
+    # themed always-on-top card with Dismiss / Snooze when it arrives.
+    # ==========================================================================
+    def reminder_target(self, rem):
+        naive = datetime.strptime(f"{rem['date']} {rem['time']}", "%Y-%m-%d %H:%M")
+        if rem['tz'] == 'Local':
+            return naive.astimezone()
+        return naive.replace(tzinfo=ZoneInfo(rem['tz']))
+
+    def check_reminders(self):
+        now = datetime.now(timezone.utc)
+        keep, nxt, changed = [], None, False
+        for rem in self.settings.get('reminders', []):
+            try:
+                if rem.get('fired') and rem.get('dismissed'):
+                    changed = True
+                    continue  # dismissed alarms leave the list
+                target = self.reminder_target(rem)
+                lead = timedelta(minutes=rem.get('lead', 10))
+                if (not rem.get('warned') and rem.get('lead', 10) > 0
+                        and target - lead <= now < target):
+                    rem['warned'] = True
+                    changed = True
+                    self.notify_reminder(rem, target)
+                if not rem.get('fired') and now >= target:
+                    rem['fired'] = True
+                    changed = True
+                    self.show_alarm(rem, target)
+                if not rem.get('fired') and (nxt is None or target < nxt[0]):
+                    nxt = (target, rem)
+            except Exception as e:
+                print("Reminder check failed:", e)
+            keep.append(rem)
+        if changed:
+            self.settings['reminders'] = keep
+            self.save_settings()
+        if nxt is not None:
+            local = nxt[0].astimezone()
+            self.next_reminder_text = f"⏰ {nxt[1]['label']} · {local:%a %H:%M}"
+        else:
+            self.next_reminder_text = None
+        self._rem_after = self.root.after(1000, self.check_reminders)
+
+    def notify_reminder(self, rem, target):
+        mins = max(1, int((target - datetime.now(timezone.utc)).total_seconds() // 60))
+        try:
+            if HAS_TRAY and hasattr(self, 'tray_icon'):
+                self.tray_icon.notify(
+                    f"{rem['label']} in {mins} min ({rem['time']} {rem['tz']})",
+                    "World Clock Reminder")
+        except Exception:
+            pass
+        try:
+            import winsound
+            winsound.MessageBeep()
+        except Exception:
+            pass
+
+    def show_alarm(self, rem, target):
+        theme = self.get_theme()
+        bg = theme['card_bg']
+        win = tk.Toplevel(self.root)
+        win.overrideredirect(True)
+        win.attributes('-topmost', True)
+        outer = tk.Frame(win, bg=bg, highlightthickness=1,
+                         highlightbackground=theme['accent'])
+        outer.pack(fill=tk.BOTH, expand=True)
+        tk.Label(outer, text=f"⏰  {rem['label']}", bg=bg,
+                 fg=theme['text_main'], font=('Outfit', 13, 'bold'),
+                 padx=20, anchor='w').pack(fill=tk.X, pady=(14, 2))
+        local_str = target.astimezone().strftime('%I:%M %p').lstrip('0')
+        tk.Label(outer,
+                 text=f"{rem['time']}  {rem['tz']}   ·   {local_str} your time",
+                 bg=bg, fg=theme['text_faded'], font=('Outfit', 9),
+                 padx=20, anchor='w').pack(fill=tk.X)
+        btns = tk.Frame(outer, bg=bg)
+        btns.pack(fill=tk.X, padx=20, pady=14)
+
+        def dismiss():
+            rem['dismissed'] = True
+            self.save_settings()
+            win.destroy()
+
+        def snooze():
+            new_target = datetime.now(timezone.utc) + timedelta(minutes=5)
+            zone = None if rem['tz'] == 'Local' else ZoneInfo(rem['tz'])
+            local_target = (new_target.astimezone(zone) if zone
+                            else new_target.astimezone())
+            rem['date'] = local_target.strftime('%Y-%m-%d')
+            rem['time'] = local_target.strftime('%H:%M')
+            rem['fired'] = False
+            rem['warned'] = True  # no second lead warning after a snooze
+            self.save_settings()
+            win.destroy()
+
+        for text, cb in (('Dismiss', dismiss), ('Snooze 5 min', snooze)):
+            b = tk.Label(btns, text=text, bg=theme['divider'],
+                         fg=theme['text_main'], font=('Outfit', 9, 'bold'),
+                         padx=14, pady=6, cursor='hand2')
+            b.bind('<Button-1>', lambda e, f=cb: f())
+            b.bind('<Enter>', lambda e, l=b: l.config(
+                bg=theme['accent'], fg=self.contrast_text(theme['accent'])))
+            b.bind('<Leave>', lambda e, l=b: l.config(
+                bg=theme['divider'], fg=theme['text_main']))
+            b.pack(side=tk.LEFT, padx=(0, 10))
+        win.dismiss = dismiss  # exposed for tests
+        win.snooze = snooze
+
+        win.update_idletasks()
+        left, top, right, bottom = self.get_current_monitor_workarea()
+        w = win.winfo_reqwidth()
+        win.geometry(f'+{(left + right - w) // 2}+{top + (bottom - top) // 5}')
+        self._last_alarm = win
+        try:
+            import winsound
+            winsound.MessageBeep()
+            win.after(400, winsound.MessageBeep)
+            win.after(800, winsound.MessageBeep)
+        except Exception:
+            pass
+        try:
+            if HAS_TRAY and hasattr(self, 'tray_icon'):
+                self.tray_icon.notify(f"{rem['label']} — now",
+                                      "World Clock Reminder")
+        except Exception:
+            pass
+
+    def style_overlay_combobox(self, win, theme):
+        style = ttk.Style(win)
+        style.theme_use('clam')
+        style.configure(
+            'Overlay.TCombobox',
+            fieldbackground=theme['divider'], background=theme['divider'],
+            foreground=theme['text_main'], arrowcolor=theme['text_faded'],
+            bordercolor=theme['card_border'], lightcolor=theme['divider'],
+            darkcolor=theme['divider'], selectbackground=theme['divider'],
+            selectforeground=theme['text_main'], padding=5)
+        style.map('Overlay.TCombobox',
+                  fieldbackground=[('readonly', theme['divider'])])
+        win.option_add('*TCombobox*Listbox.background', theme['divider'])
+        win.option_add('*TCombobox*Listbox.foreground', theme['text_main'])
+        win.option_add('*TCombobox*Listbox.selectBackground', theme['accent'])
+        win.option_add('*TCombobox*Listbox.selectForeground',
+                       self.contrast_text(theme['accent']))
+
+    def show_reminder_dialog(self):
+        if self._rem_dialog is not None:
+            try:
+                self._rem_dialog.destroy()
+            except Exception:
+                pass
+        theme = self.get_theme()
+        bg = theme['card_bg']
+        win = tk.Toplevel(self.root)
+        self._rem_dialog = win
+        win.overrideredirect(True)
+        win.attributes('-topmost', True)
+        win.config(bg=bg)
+        self.style_overlay_combobox(win, theme)
+        outer = tk.Frame(win, bg=bg, highlightthickness=1,
+                         highlightbackground=theme['card_border'])
+        outer.pack(fill=tk.BOTH, expand=True)
+
+        header = tk.Frame(outer, bg=bg)
+        header.pack(fill=tk.X)
+        tk.Label(header, text='⏰ New Reminder', bg=bg, fg=theme['text_muted'],
+                 font=('Outfit', 9, 'bold'), padx=14, pady=8).pack(side=tk.LEFT)
+        x_lbl = tk.Label(header, text='✕', bg=bg, fg=theme['text_muted'],
+                         font=('Outfit', 11), padx=12, cursor='hand2')
+        x_lbl.pack(side=tk.RIGHT)
+        x_lbl.bind('<Button-1>', lambda e: win.destroy())
+
+        body = tk.Frame(outer, bg=bg)
+        body.pack(fill=tk.BOTH, padx=22, pady=(2, 18))
+
+        def field_label(text):
+            tk.Label(body, text=text, bg=bg, fg=theme['text_faded'],
+                     font=('Outfit', 8, 'bold'),
+                     anchor='w').pack(fill=tk.X, pady=(8, 2))
+
+        def entry(default):
+            e = tk.Entry(body, bg=theme['divider'], fg=theme['text_main'],
+                         insertbackground=theme['text_main'], relief='flat',
+                         font=('Outfit', 10))
+            e.insert(0, default)
+            e.pack(fill=tk.X, ipady=4)
+            return e
+
+        field_label('WHAT')
+        label_e = entry('Interview')
+        field_label('TIME ZONE')
+        tz_combo = ttk.Combobox(
+            body, values=[z[0] for z in COMMON_ZONES], state='readonly',
+            style='Overlay.TCombobox', font=('Outfit', 9))
+        tz_combo.set('US Pacific (Los Angeles)')
+        tz_combo.pack(fill=tk.X)
+        field_label('DATE (YYYY-MM-DD)')
+        date_e = entry(date.today().isoformat())
+        field_label('TIME IN THAT ZONE (24H HH:MM)')
+        time_e = entry((datetime.now() + timedelta(hours=1)).strftime('%H:00'))
+        field_label('WARN ME BEFORE (MINUTES)')
+        lead_combo = ttk.Combobox(
+            body, values=['0', '5', '10', '15', '30', '60'], state='readonly',
+            style='Overlay.TCombobox', font=('Outfit', 9))
+        lead_combo.set('10')
+        lead_combo.pack(fill=tk.X)
+
+        err = tk.Label(body, text='', bg=bg, fg='#e06c75', font=('Outfit', 8))
+        err.pack(fill=tk.X, pady=(6, 0))
+
+        def save():
+            tz = dict((z[0], z[1]) for z in COMMON_ZONES)[tz_combo.get()]
+            try:
+                rem = {
+                    'label': label_e.get().strip() or 'Reminder',
+                    'tz': tz,
+                    'date': date_e.get().strip(),
+                    'time': time_e.get().strip(),
+                    'lead': int(lead_combo.get()),
+                    'warned': False, 'fired': False,
+                }
+                if self.reminder_target(rem) <= datetime.now(timezone.utc):
+                    err.config(text='That moment is already in the past.')
+                    return
+            except Exception:
+                err.config(text='Check the date (YYYY-MM-DD) and time (HH:MM).')
+                return
+            self.settings.setdefault('reminders', []).append(rem)
+            self.save_settings()
+            win.destroy()
+
+        tk.Button(body, text='Add Reminder', command=save,
+                  bg=theme['accent'], fg=self.contrast_text(theme['accent']),
+                  activebackground=theme['accent'], relief='flat', bd=0,
+                  font=('Outfit', 10, 'bold'), cursor='hand2',
+                  pady=8).pack(fill=tk.X, pady=(12, 0))
+
+        upcoming = [r for r in self.settings.get('reminders', [])
+                    if not r.get('fired')]
+        if upcoming:
+            field_label('UPCOMING')
+            for r in upcoming[:6]:
+                row = tk.Frame(body, bg=bg)
+                row.pack(fill=tk.X, pady=1)
+                tk.Label(row,
+                         text=f"{r['label']} — {r['date']} {r['time']} ({r['tz']})",
+                         bg=bg, fg=theme['text_muted'], font=('Outfit', 8),
+                         anchor='w').pack(side=tk.LEFT)
+                dx = tk.Label(row, text='✕', bg=bg, fg=theme['text_faded'],
+                              font=('Outfit', 9), cursor='hand2', padx=8)
+                dx.pack(side=tk.RIGHT)
+                dx.bind('<Button-1>', lambda e, rr=r: (
+                    self.settings['reminders'].remove(rr),
+                    self.save_settings(), win.destroy(),
+                    self.show_reminder_dialog()))
+
+        # hooks for the test suite
+        self._rd = {'win': win, 'label': label_e, 'tz': tz_combo,
+                    'date': date_e, 'time': time_e, 'lead': lead_combo,
+                    'save': save}
+
+        win.update_idletasks()
+        left, top, right, bottom = self.get_current_monitor_workarea()
+        w, h = win.winfo_reqwidth(), win.winfo_reqheight()
+        win.geometry(f'+{(left + right - w) // 2}+{(top + bottom - h) // 2}')
+        win.bind('<Escape>', lambda e: win.destroy())
+
     def on_tray_activate(self):
         # pystray fires the same default action for single and double clicks,
         # so tell them apart with a 350ms window: one click peeks, two show
@@ -938,6 +1219,7 @@ class WorldClockApp:
             'opacity': 0.85,
             'theme': 'dark',
             'clocks': [],  # Saved clocks list
+            'reminders': [],  # Timezone-pinned one-shot alarms
             'x': None,
             'y': None
         }
@@ -1687,6 +1969,8 @@ class WorldClockApp:
         if HAS_TRAY and hasattr(self, 'tray_icon') and self.tray_tooltip_counter >= 10:
             self.tray_tooltip_counter = 0
             tip = f"{timer_text}\n{today_part}\n{month_part}"
+            if self.next_reminder_text:
+                tip += f"\n{self.next_reminder_text}"
             try:
                 if self.tray_icon.title != tip:
                     self.tray_icon.title = tip
@@ -1721,6 +2005,7 @@ class WorldClockApp:
              "Resume Work Timer" if self.paused else "Pause Work Timer",
              self.toggle_pause),
             ('command', "Hide Overlay (H)", self.hide_overlay),
+            ('command', "Add Reminder…", self.show_reminder_dialog),
             ('command', "Toggle Layout (Double-Click)", self.toggle_layout),
             ('command', "Reset Clocks Setup Wizard", self.reset_clocks),
             ('separator',),
@@ -1820,6 +2105,9 @@ class WorldClockApp:
         def on_hide_overlay(icon, item):
             self.root.after(0, self.hide_overlay)
 
+        def on_add_reminder(icon, item):
+            self.root.after(0, self.show_reminder_dialog)
+
         # pystray requires two-parameter actions, so bind the value via a factory
         def opacity_item(op):
             return item(f"{int(op * 100)}%", lambda icon, item: on_change_opacity(icon, item, op))
@@ -1837,6 +2125,7 @@ class WorldClockApp:
                  visible=lambda item: not self.hidden),
             item(lambda text: 'Resume Work Timer' if self.paused else 'Pause Work Timer',
                  on_toggle_pause),
+            item('Add Reminder', on_add_reminder),
             item('Toggle Layout', on_toggle_layout),
             item('Toggle Seconds', on_toggle_seconds),
             pystray.Menu.SEPARATOR,

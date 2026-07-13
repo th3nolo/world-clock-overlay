@@ -304,7 +304,7 @@ def run_tests(app):
     body = popup.win.winfo_children()[0]
     labels = [w for w in body.winfo_children() if isinstance(w, tk.Label)]
     seps = [w for w in body.winfo_children() if isinstance(w, tk.Frame)]
-    check('9 items and 2 separators', len(labels) == 9 and len(seps) == 2)
+    check('10 items and 2 separators', len(labels) == 10 and len(seps) == 2)
     check('popup body and items use theme card_bg',
           body.cget('bg') == theme['card_bg']
           and labels[0].cget('bg') == theme['card_bg'])
@@ -315,7 +315,8 @@ def run_tests(app):
           labels[0].cget('text') == 'Pause Work Timer')
 
     themes_label = [l for l in labels if l.cget('text').startswith('Themes')][0]
-    themes_sub = app.context_menu_items()[7][2]
+    themes_sub = [it for it in app.context_menu_items()
+                  if it[0] == 'cascade' and it[1] == 'Themes'][0][2]
     popup.open_child(themes_label, themes_sub)
     check('cascade opens a themed submenu',
           popup.child is not None
@@ -331,6 +332,61 @@ def run_tests(app):
           first.cget('text') == 'Resume Work Timer')
     app.context_popup.close_all()
     app.resume_work()
+
+    # --- Timezone-pinned reminders ---
+    from datetime import timezone as _utc
+    check('reminders list exists in settings',
+          isinstance(app.settings.get('reminders'), list))
+    app.settings['reminders'] = []
+    now_utc = datetime.now(_utc.utc)
+    ry = now_utc.astimezone(clock.ZoneInfo('Asia/Riyadh')) + timedelta(minutes=5)
+    app.settings['reminders'].append({
+        'label': 'TZ probe', 'tz': 'Asia/Riyadh',
+        'date': ry.strftime('%Y-%m-%d'), 'time': ry.strftime('%H:%M'),
+        'lead': 10, 'warned': False, 'fired': False})
+    past = (now_utc - timedelta(minutes=2)).astimezone()
+    app.settings['reminders'].append({
+        'label': 'Due now', 'tz': 'Local',
+        'date': past.strftime('%Y-%m-%d'), 'time': past.strftime('%H:%M'),
+        'lead': 0, 'warned': True, 'fired': False})
+    if app._rem_after is not None:
+        app.root.after_cancel(app._rem_after)
+        app._rem_after = None
+    app.check_reminders()
+    r_tz, r_due = app.settings['reminders'][0], app.settings['reminders'][1]
+    check('future reminder in lead window warns without firing',
+          r_tz['warned'] and not r_tz['fired'])
+    check('due reminder fires an alarm card',
+          r_due['fired'] and app._last_alarm is not None
+          and app._last_alarm.winfo_exists())
+    check('tray tooltip gains a next-reminder line',
+          app.next_reminder_text is not None
+          and 'TZ probe' in app.next_reminder_text)
+    app._last_alarm.dismiss()
+    if app._rem_after is not None:
+        app.root.after_cancel(app._rem_after)
+        app._rem_after = None
+    app.check_reminders()
+    check('dismissed alarm leaves the list',
+          all(r.get('label') != 'Due now'
+              for r in app.settings['reminders']))
+
+    app.show_reminder_dialog()
+    rd = app._rd
+    rd['label'].delete(0, 'end')
+    rd['label'].insert(0, 'Dialog probe')
+    future = datetime.now() + timedelta(hours=2)
+    rd['date'].delete(0, 'end')
+    rd['date'].insert(0, future.strftime('%Y-%m-%d'))
+    rd['time'].delete(0, 'end')
+    rd['time'].insert(0, future.strftime('%H:%M'))
+    count_before = len(app.settings['reminders'])
+    rd['save']()
+    check('dialog adds a Pacific-pinned reminder',
+          len(app.settings['reminders']) == count_before + 1
+          and app.settings['reminders'][-1]['tz'] == 'America/Los_Angeles')
+    app.settings['reminders'] = []
+    app.save_settings()
 
     # --- Raycast and Liquid Glass themes ---
     required = {'bg', 'card_bg', 'card_border', 'divider', 'text_main',
@@ -386,6 +442,8 @@ def main():
         try:
             run_tests(app)
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             print('ERROR:', repr(e))
             code = 1
         for name, ok in results:
