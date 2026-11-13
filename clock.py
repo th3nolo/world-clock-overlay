@@ -6,9 +6,11 @@ import platform
 import sqlite3
 import threading
 from datetime import datetime, date, timedelta, timezone
-from zoneinfo import ZoneInfo
+from functools import cache
+from unicodedata import normalize
+from zoneinfo import ZoneInfo, available_timezones
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import font, messagebox, ttk
 
 # Configuration paths
 CONFIG_FILE = os.path.join(os.path.expanduser('~'), '.world_clock_overlay.json')
@@ -68,28 +70,30 @@ def grab_region_fast(x, y, w, h):
     gdi32.DeleteDC(sdc)
     return Image.frombuffer('RGB', (w, h), buf.raw, 'raw', 'BGRX', 0, 1)
 
-# Curated list of common timezones for the setup wizard dropdown
-COMMON_ZONES = [
-    ("Local System Time", "Local"),
-    ("Venezuela (Caracas)", "America/Caracas"),
-    ("Spain (Madrid)", "Europe/Madrid"),
-    ("Saudi Arabia (Riyadh)", "Asia/Riyadh"),
-    ("US Eastern (New York)", "America/New_York"),
-    ("US Central (Chicago)", "America/Chicago"),
-    ("US Pacific (Los Angeles)", "America/Los_Angeles"),
-    ("United Kingdom (London)", "Europe/London"),
-    ("Germany (Berlin)", "Europe/Berlin"),
-    ("Japan (Tokyo)", "Asia/Tokyo"),
-    ("India (Kolkata)", "Asia/Kolkata"),
-    ("Australia (Sydney)", "Australia/Sydney"),
-    ("UAE (Dubai)", "Asia/Dubai"),
-    ("Argentina (Buenos Aires)", "America/Argentina/Buenos_Aires"),
-    ("Colombia (Bogota)", "America/Bogota"),
-    ("Mexico (Mexico City)", "America/Mexico_City"),
-    ("Brazil (Sao Paulo)", "America/Sao_Paulo"),
-    ("Singapore", "Asia/Singapore"),
-    ("South Africa (Johannesburg)", "Africa/Johannesburg")
-]
+@cache
+def timezone_names():
+    return tuple(sorted(available_timezones()))
+
+
+def timezone_search_key(value):
+    return ''.join(char for char in normalize('NFKD', value.casefold()) if char.isalnum())
+
+
+def timezone_picker(parent, default, **kwargs):
+    choices = (default, *timezone_names())
+    picker = ttk.Combobox(parent, values=choices, height=12, **kwargs)
+    picker.set(default)
+
+    def filter_choices():
+        value = picker.get().strip()
+        matches = choices
+        if value and value not in choices:
+            query = timezone_search_key(value)
+            matches = tuple(zone for zone in choices if query in timezone_search_key(zone))
+        picker.configure(values=matches)
+
+    picker.configure(postcommand=filter_choices)
+    return picker
 
 # Map zones to flag drawing codes
 FLAG_MAP = {
@@ -377,6 +381,8 @@ class WorldClockApp:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("World Clock Overlay")
+        self.clock_label_font = font.Font(
+            root=self.root, family='Outfit', size=8, weight='bold')
         
         self.is_windows = platform.system() == 'Windows'
         
@@ -909,7 +915,7 @@ class WorldClockApp:
             darkcolor=theme['divider'], selectbackground=theme['divider'],
             selectforeground=theme['text_main'], padding=5)
         style.map('Overlay.TCombobox',
-                  fieldbackground=[('readonly', theme['divider'])])
+                  fieldbackground=[('!disabled', theme['divider'])])
         win.option_add('*TCombobox*Listbox.background', theme['divider'])
         win.option_add('*TCombobox*Listbox.foreground', theme['text_main'])
         win.option_add('*TCombobox*Listbox.selectBackground', theme['accent'])
@@ -961,16 +967,16 @@ class WorldClockApp:
 
         field_label('WHAT')
         label_e = entry('Interview')
-        field_label('TIME ZONE')
-        tz_combo = ttk.Combobox(
-            body, values=[z[0] for z in COMMON_ZONES], state='readonly',
+        field_label('TIME ZONE (TYPE A CITY, THEN OPEN THE LIST)')
+        tz_combo = timezone_picker(
+            body, 'Local', width=30,
             style='Overlay.TCombobox', font=('Outfit', 9))
-        tz_combo.set('US Pacific (Los Angeles)')
         tz_combo.pack(fill=tk.X)
+        suggested_time = datetime.now() + timedelta(hours=1)
         field_label('DATE (YYYY-MM-DD)')
-        date_e = entry(date.today().isoformat())
+        date_e = entry(suggested_time.date().isoformat())
         field_label('TIME IN THAT ZONE (24H HH:MM)')
-        time_e = entry((datetime.now() + timedelta(hours=1)).strftime('%H:00'))
+        time_e = entry(suggested_time.strftime('%H:00'))
         field_label('WARN ME BEFORE (MINUTES)')
         lead_combo = ttk.Combobox(
             body, values=['0', '5', '10', '15', '30', '60'], state='readonly',
@@ -982,7 +988,10 @@ class WorldClockApp:
         err.pack(fill=tk.X, pady=(6, 0))
 
         def save():
-            tz = dict((z[0], z[1]) for z in COMMON_ZONES)[tz_combo.get()]
+            tz = tz_combo.get().strip()
+            if tz != 'Local' and tz not in timezone_names():
+                err.config(text='Choose a time zone from the list.')
+                return
             try:
                 rem = {
                     'label': label_e.get().strip() or 'Reminder',
@@ -1116,7 +1125,7 @@ class WorldClockApp:
             selectforeground='#fafafa',
             padding=6
         )
-        style.map('Wizard.TCombobox', fieldbackground=[('readonly', '#1a1a1f')])
+        style.map('Wizard.TCombobox', fieldbackground=[('!disabled', '#1a1a1f')])
         wizard.option_add('*TCombobox*Listbox.background', '#1a1a1f')
         wizard.option_add('*TCombobox*Listbox.foreground', '#fafafa')
         wizard.option_add('*TCombobox*Listbox.selectBackground', '#6ea8ff')
@@ -1165,6 +1174,11 @@ class WorldClockApp:
         body = tk.Frame(outer, bg="#101014")
         body.pack(fill=tk.BOTH, expand=True, padx=28, pady=(10, 24))
 
+        if timezone_names():
+            zone_help = "Type a city, then open the list to choose its time zone."
+        else:
+            zone_help = "For more clocks, set up time zone data using README.md."
+
         # Title
         tk.Label(
             body,
@@ -1176,7 +1190,7 @@ class WorldClockApp:
 
         tk.Label(
             body,
-            text="Clock 1 is your local system time.\nPick up to four more timezones to display.",
+            text=f"Clock 1 shows your local time. Add up to four more.\n{zone_help}",
             fg="#8f8f96", bg="#101014",
             font=("Outfit", 9),
             justify="left",
@@ -1197,21 +1211,17 @@ class WorldClockApp:
                 anchor="w"
             ).pack(fill=tk.X)
 
-            combo = ttk.Combobox(
-                body,
-                values=[z[0] for z in COMMON_ZONES[1:]] + ["None"],
-                state="readonly",
+            combo = timezone_picker(
+                body, "None", width=30,
                 style='Wizard.TCombobox',
                 font=("Outfit", 10)
             )
-            # Default empty comboboxes to "None"
-            combo.set("None")
             combo.pack(fill=tk.X, pady=(3, 12))
             combos.append(combo)
 
-        # Set default values for Clock 2 & 3 to Spain and Saudi Arabia for quick setup
-        combos[0].set("Spain (Madrid)")
-        combos[1].set("Saudi Arabia (Riyadh)")
+        error = tk.Label(body, text="", fg="#e06c75", bg="#101014",
+                         font=("Outfit", 9))
+        error.pack(fill=tk.X)
 
         def save_setup():
             clocks = [
@@ -1219,20 +1229,18 @@ class WorldClockApp:
             ]
             
             for combo in combos:
-                val = combo.get()
-                if val != "None":
-                    # Find corresponding timezone name
-                    matched = [z for z in COMMON_ZONES if z[0] == val]
-                    if matched:
-                        tz_name = matched[0][1]
-                        # Extract friendly name
-                        friendly_name = val.split(' (')[0]
-                        flag_code = FLAG_MAP.get(tz_name, 'generic')
-                        clocks.append({
-                            "tz": tz_name,
-                            "name": friendly_name,
-                            "flag_code": flag_code
-                        })
+                zone = combo.get().strip()
+                if zone in ("", "None"):
+                    continue
+                if zone not in timezone_names():
+                    error.config(text="Choose a time zone from the list.")
+                    combo.focus_set()
+                    return
+                clocks.append({
+                    "tz": zone,
+                    "name": zone.rsplit('/', 1)[-1].replace('_', ' '),
+                    "flag_code": FLAG_MAP.get(zone, 'generic')
+                })
             
             self.settings['clocks'] = clocks
             self.save_settings()
@@ -1707,7 +1715,7 @@ class WorldClockApp:
         
         if self.settings['layout'] == 'horizontal':
             w = N * 190 + 20 if show_sec else N * 180 + 20
-            h = 132  # Panel: clock columns + status strip
+            h = 160 if N == 1 else 132
         else:
             w = 200
             h = N * 72 + 72  # Panel: clock rows + three-line status strip
@@ -1891,58 +1899,30 @@ class WorldClockApp:
         if target_tz_name == 'Local':
             return "Local"
         try:
-            now = datetime.now()
-            local_offset_min = int(now.astimezone().utcoffset().total_seconds() / 60)
-
-            target_tz = ZoneInfo(target_tz_name)
-            target_offset_min = int(now.astimezone(target_tz).utcoffset().total_seconds() / 60)
-
-            diff_min = target_offset_min - local_offset_min
-            diff_hours = diff_min / 60
-            
-            if diff_hours == 0:
-                return "Local"
-            
-            sign = "+" if diff_hours > 0 else ""
-            if diff_hours.is_integer():
-                return f"{sign}{int(diff_hours)}h"
-            return f"{sign}{diff_hours:.1f}h"
+            now = datetime.now(timezone.utc)
+            local_offset = now.astimezone().utcoffset()
+            target_offset = now.astimezone(ZoneInfo(target_tz_name)).utcoffset()
+            difference = int((target_offset - local_offset).total_seconds() / 60)
         except Exception:
             return ""
+        if not difference:
+            return "Local"
+        sign = "+" if difference > 0 else "-"
+        hours, minutes = divmod(abs(difference), 60)
+        return f"{sign}{hours}:{minutes:02d}" if minutes else f"{sign}{hours}h"
 
-    def get_short_label(self, clock_info):
-        # "Spain (Madrid)" -> "MADRID"; "Local System Time" -> "LOCAL"
+    def get_short_label(self, clock_info, width):
         if clock_info.get('tz') == 'Local':
             return 'LOCAL'
         name = clock_info.get('name', '')
         if '(' in name and ')' in name:
             name = name[name.index('(') + 1:name.index(')')]
-        return name.upper()
-
-    def get_local_flag_code(self):
-        try:
-            # First, check if the system timezone name matches any flag directly
-            local_tz = datetime.now().astimezone().tzinfo
-            tz_name = str(local_tz)
-            if tz_name in FLAG_MAP:
-                return FLAG_MAP[tz_name]
-                
-            # Fallback: estimate via UTC offset (extremely robust)
-            now = datetime.now()
-            offset_sec = now.astimezone().utcoffset().total_seconds()
-            offset_hours = offset_sec / 3600.0
-            
-            if offset_hours == -4.0:
-                return 'venezuela'
-            elif offset_hours == 3.0:
-                return 'ksa'
-            elif offset_hours in [1.0, 2.0]:
-                return 'spain'
-            elif offset_hours in [-5.0, -6.0, -7.0, -8.0]:
-                return 'usa'
-        except Exception:
-            pass
-        return 'local'
+        name = name.upper()
+        if self.clock_label_font.measure(name) <= width:
+            return name
+        while name and self.clock_label_font.measure(name + '…') > width:
+            name = name[:-1]
+        return name.rstrip() + '…'
 
     def update_clocks(self):
         self.canvas.delete("all")
@@ -1971,8 +1951,8 @@ class WorldClockApp:
         margin = 1 if is_glass else 10
         panel_x1, panel_y1 = margin, margin
         panel_x2, panel_y2 = w - margin, h - margin
-        # The narrow vertical window stacks the status into three lines
-        status_h = 24 if layout == 'horizontal' else 52
+        stack_status = layout == 'vertical' or n == 1
+        status_h = 52 if stack_status else 24
         status_sep_y = panel_y2 - status_h
 
         if is_glass and self.glass_photo is not None:
@@ -2010,10 +1990,6 @@ class WorldClockApp:
             tz_name = clock_info['tz']
             flag_code = clock_info['flag_code']
 
-            # Dynamically override the generic 'local' clock face flag with country flag
-            if flag_code == 'local':
-                flag_code = self.get_local_flag_code()
-
             # Cell coordinates inside the panel + hairline divider between cells
             if layout == 'horizontal':
                 x1 = panel_x1 + i * col_w
@@ -2044,31 +2020,32 @@ class WorldClockApp:
             except Exception:
                 self.draw_text(
                     x1 + pad, time_y,
-                    text="Error",
+                    text="Time zone unavailable",
                     fill='red',
                     font=('Outfit', 10),
                     anchor='w'
                 )
                 continue
 
-            # Head row: flag + short uppercase label + day/night mark
+            # Fit the clock label between the flag and the day/night mark.
             flag_x = x1 + pad
             self.draw_flag(flag_code, flag_x, head_y - 5)
-            self.draw_text(
-                flag_x + 23, head_y,
-                text=self.get_short_label(clock_info),
-                fill=theme['text_muted'],
-                font=('Outfit', 8, 'bold'),
-                anchor='w'
-            )
-
             is_day = 7 <= time_now.hour < 19
-            self.draw_text(
+            symbol_id = self.draw_text(
                 x2 - pad, head_y,
                 text='☀' if is_day else '☾',
                 fill=theme['sun'] if is_day else theme['moon'],
                 font=symbol_font,
                 anchor='e'
+            )
+            label_x = flag_x + 23
+            label_width = self.canvas.bbox(symbol_id)[0] - label_x - 6
+            self.draw_text(
+                label_x, head_y,
+                text=self.get_short_label(clock_info, label_width),
+                fill=theme['text_muted'],
+                font=self.clock_label_font,
+                anchor='w'
             )
 
             # Time Formatting
@@ -2140,7 +2117,7 @@ class WorldClockApp:
         month_part = f"{current_month}: {days_worked} {days_label}  ·  {hours_worked:.1f} hrs"
         status_font = ('Outfit', 8, 'bold')
 
-        if layout == 'horizontal':
+        if not stack_status:
             # Timer (pause button) on the left, day/month stats on the right
             timer_id = self.draw_text(
                 panel_x1 + 16, status_sep_y + status_h / 2,

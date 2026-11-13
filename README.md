@@ -1,35 +1,19 @@
 # World Clock Overlay & Work Tracker
 
-A Python desktop overlay, built with Tkinter, that shows your local time and up to four more timezones. It floats above other windows and records your work sessions in a local SQLite database.
+World Clock Overlay is an always-on-top desktop clock for remote work across time zones. See your local time next to up to four other clocks. Set reminders in a teammate’s time zone and track your work hours on your computer.
 
-![Overlay in horizontal layout, dark theme](screenshots/overlay-horizontal.png)
+![Local time alongside Nairobi, Berlin, Kathmandu, and the Chatham Islands](screenshots/overlay-horizontal.png)
 
 ## Features
 
-- **Up to 5 clocks in one panel**: your local time plus four timezones you pick, drawn as one rounded panel with thin divider lines.
-- **Day/night icons**: each clock shows a sun (7am–7pm) or a moon.
-- **Time difference**: each remote clock shows its offset from your local time, e.g. `+6h`.
-- **Two layouts**: horizontal columns or a vertical stack; double-click the overlay to switch.
-- **Setup wizard**: on first launch, pick the timezones to display.
-- **Work tracker**: each run of the overlay is recorded as a work session (start, end, duration) in `~/.world_clock_work_tracker.db`.
-- **Status bar**: a live stopwatch for the current session, plus today's hours and the days worked and total hours in the current month. Sessions are clipped at midnight, so one day can never show more than 24 hours.
-- **Pause tracking**: click the ⏱ timer, or hover the overlay and hold Space for half a second — the divider line fills from both edges to the center, and when the halves meet the timer pauses. Paused time is never written to the database; the same gesture resumes.
-- **Themed context menu**: the right-click menu is drawn with the active theme (panel colors, border, hover accent) instead of the native white system menu, and restyles instantly when you switch themes.
-- **Hide to tray**: tap H over the overlay to hide it instantly (instant on purpose: holding a key leaks key-repeat into the window you're typing in); the tray icon stays. A single click on the tray icon peeks — the overlay shows until the mouse leaves it, then fades out over half a second (moving back onto it cancels the fade) — and a double click brings it back for good.
-- **Tray tooltip**: hovering the tray icon shows the session timer plus today's and the month's hours — no click needed, works while the overlay is hidden.
-- **Timezone-pinned reminders**: right-click → "Add Reminder…" for one-shot alarms like "interview at 14:00 America/Los_Angeles". The moment is computed in that zone (daylight saving handled automatically), you get a tray warning + beep a chosen number of minutes ahead, and a themed always-on-top card with Dismiss / Snooze when it arrives. The next reminder also shows in the tray tooltip.
-- **Six themes**: Frosted Dark, Frosted Light, Cyberpunk Neon, Nordic Frost, Raycast Dark (flat near-black, hairline borders), and Liquid Glass — a live-rendered glass panel: the app samples what's behind the window and re-renders it with blur, saturation, edge refraction, and a specular rim, so text stays readable over anything. On Liquid Glass the scroll wheel adjusts the glass tint instead of window opacity. Two side notes: the glass re-renders on a background thread only when the backdrop actually changes (moving content and drags update back-to-back at ~20 fps; a static desktop costs almost nothing), and while this theme is active the overlay is invisible in screenshots and screen shares (it excludes itself from capture to sample its backdrop) — the context menu, alarm cards, and dialogs it opens inherit that invisibility, so captures never show a menu floating over nothing.
-- **Translucency**: set the overlay between 30% and 100% opacity from the right-click menu, or scroll the mouse wheel while hovering the overlay.
-- **Readable on light backgrounds**: secondary text (labels, dates, status bar) is near-white — near-black in the light theme — and every text is drawn with a 1px contrast shadow, so the translucent overlay stays legible over white windows.
-- **Click-through (Windows)**: clicks on the empty background pass through to the window underneath.
-- **Corner anchoring**: when the layout toggles, the window keeps its nearest screen corner instead of drifting.
-- **Drag feedback**: the overlay dims to 30% opacity while being dragged.
-- **Saved state**: position and preferences are written to `~/.world_clock_overlay.json` on exit and restored on launch.
-- **System tray icon** (optional): mirrors the right-click menu; requires the Pillow and pystray packages.
+- **World clocks.** Choose from the IANA time zone database. Each clock shows the local date and how far ahead or behind you it is, down to the minute.
+- **Reminders.** Enter a date and time in the zone where an event is scheduled. For a handoff at 09:00 in Nairobi, choose `Africa/Nairobi` and enter `09:00`. Keep the app running to receive the reminder.
+- **Work timer.** Pause when you step away and see your hours for the day and month. Sessions are stored in `~/.world_clock_work_tracker.db` on your computer.
+- **Overlay controls.** Drag the clock where you want it, switch between horizontal and vertical layouts, and adjust the opacity. On Windows, clicks on the empty background pass through to the window below.
 
 ## Screenshots
 
-### Vertical layout (with seconds)
+### Vertical layout
 
 ![Overlay in vertical layout with seconds enabled](screenshots/overlay-vertical.png)
 
@@ -39,88 +23,92 @@ A Python desktop overlay, built with Tkinter, that shows your local time and up 
 | --- | --- | --- |
 | ![Frosted Light theme](screenshots/theme-light.png) | ![Cyberpunk Neon theme](screenshots/theme-cyberpunk.png) | ![Nordic Frost theme](screenshots/theme-nordic.png) |
 
-Over a busy background (Raycast is near-opaque flat; Liquid Glass blurs what's behind it):
-
 | Raycast Dark | Liquid Glass |
 | --- | --- |
 | ![Raycast Dark theme](screenshots/theme-raycast.png) | ![Liquid Glass theme](screenshots/theme-glass.png) |
 
 ### Setup wizard
 
-![Setup wizard](screenshots/setup-wizard.png)
+![First-run setup with four time zones selected](screenshots/setup-wizard.png)
 
 ## Demos
 
-### Pause with the space bar
+### Pause with the space bar on Windows
 
-Hover the overlay and hold Space: the divider fills from both edges with easing; when the halves meet (0.5 s), tracking pauses. Hold again to resume.
+Hover over the overlay and hold Space for half a second. Hold it again to resume.
 
 ![Hold Space to pause](screenshots/pause-hold-space.gif)
 
 ### Pause with a click
 
-Click the ⏱ timer text in the status strip to pause and resume.
+Click the work timer to pause or resume.
 
 ![Click the timer to pause](screenshots/pause-click.gif)
 
-### Scroll-wheel translucency
+### Scroll-wheel opacity
 
-Scroll the mouse wheel while hovering the overlay to step the opacity between 30% and 100%.
+Scroll over the overlay to adjust its opacity. On Windows, scrolling in Liquid Glass changes the tint.
 
-![Scroll wheel translucency](screenshots/wheel-translucency.gif)
+![Scroll wheel adjusts opacity](screenshots/wheel-translucency.gif)
 
-### Themed context menu
+### Theme menu
 
-The right-click menu uses the active theme and restyles the moment you pick a new one.
+Right-click the overlay and choose a theme.
 
-![Context menu follows the theme](screenshots/context-menu-themes.gif)
+![Context menu follows the active theme](screenshots/context-menu-themes.gif)
 
 ### Layout toggle
 
-Double-click the overlay to switch between horizontal and vertical layouts; the window keeps its nearest screen corner.
+Double-click to switch layouts. The overlay stays anchored to the nearest screen corner.
 
-![Double-click toggles layout](screenshots/layout-toggle.gif)
+![Double-click to switch layouts](screenshots/layout-toggle.gif)
 
-## Running the Application
+## Running the application
 
-### Windows host
+### Windows
 
-Double-click `run_clock.bat` from the WSL network path:
-```text
-\\wsl.localhost\<distro-name>\home\<username>\world-clock-overlay\
+You’ll need CPython 3.11–3.15 with Tkinter and [uv](https://docs.astral.sh/uv/getting-started/installation/). In PowerShell, open the project folder and run the following commands.
+
+```powershell
+uv venv --no-python-downloads --python 3.12 .venv
+uv pip sync --python .venv --require-hashes --only-binary :all: --default-index https://pypi.org/simple requirements-windows.txt
+.\.venv\Scripts\python.exe clock.py
 ```
-The script installs Pillow and pystray if they are missing, then launches `pythonw.exe` in the background.
+
+Use your installed Python version in the first command. The requirements file pins the Windows dependencies and checks their hashes. It includes the time zone data for remote clocks and reminders, plus the packages for the tray icon and Liquid Glass. After setup, double-click `run_clock.bat` to launch the overlay.
 
 ### WSL
 
-1. Install Tkinter:
-   ```bash
-   sudo apt-get update && sudo apt-get install python3-tk
-   ```
-2. Launch:
-   ```bash
-   python3 clock.py
-   ```
+Use a WSL 2 distribution with [WSLg](https://learn.microsoft.com/en-us/windows/wsl/tutorials/gui-apps), Python 3.9 or newer, Tkinter, and system time zone data. The package names for Tkinter and time zone data on Debian and Ubuntu are `python3-tk` and `tzdata`.
+
+```bash
+python3 clock.py
+```
+
+Click the timer or use the right-click menu to pause tracking. On WSL, Liquid Glass uses a static panel.
 
 ## Controls
 
-- **Move**: click and drag anywhere on the overlay.
-- **Pause/resume the work timer**: click the ⏱ timer text, or hold Space for 0.5 s while hovering the overlay.
-- **Hide to tray**: tap H while hovering the overlay, or right-click → "Hide Overlay". Single-click the tray icon to peek (fades away when the mouse leaves the overlay); double-click it to bring the overlay back permanently.
-- **Demo mode (Liquid Glass)**: tap DEL while hovering — the overlay and its menus become visible to screenshots/recordings, a red dot shows next to the timer, and the glass freezes its backdrop sample (it re-samples after you drag it). Tap DEL again to go private.
-- **Toggle layout**: double-click to switch between horizontal and vertical.
-- **Translucency**: scroll the mouse wheel while hovering the overlay (steps through 30/50/70/85/100%).
-- **Reminders**: right-click → "Add Reminder…" (also in the tray menu); pick the label, time zone, date, time in that zone, and how many minutes ahead to warn.
-- **Options**: right-click the overlay (or the tray icon) for time format, seconds, translucency, themes, and "Reset Clocks Setup Wizard".
+- **Change clocks.** In the setup wizard, type a city or region, then open the list to choose a time zone. To reopen the wizard, right-click and choose **Reset Clocks Setup Wizard**.
+- **Set a reminder.** Right-click and choose **Add Reminder…**. Select a zone, enter the date and time there, and choose how far ahead you want a warning. On Windows, you can get a tray alert and a beep. When the reminder is due, you can dismiss it or snooze it for five minutes.
+- **Hide to tray.** With the tray icon active, right-click and choose **Hide Overlay**. On Windows, you can also hover over the overlay and press H. Single-click the tray icon to take a quick look. Double-click to restore the overlay.
+- **Show Liquid Glass in a recording.** On Windows, Liquid Glass hides the overlay and its menus from screen capture. Hover and press Delete to toggle demo mode, which shows the overlay with a frozen backdrop.
+- **Change the display.** Right-click for 12- or 24-hour time, seconds, opacity, and themes. The app saves these preferences and its position in `~/.world_clock_overlay.json`.
 
 ## Tests
 
-The layout tests check that labels and icons do not overlap:
-```bash
-python3 test_layout.py
+On Windows, run the tests in PowerShell after setting up the virtual environment.
+
+```powershell
+.\.venv\Scripts\python.exe test_layout.py
+.\.venv\Scripts\python.exe test_wheel_stats.py
 ```
 
-The behavior tests check scroll-wheel translucency stepping, work-hour accounting (including midnight clipping), pause/resume by click and by held Space, the hold progress bar, and the themed context menu (uses an isolated profile, never touches your real config or database):
+On WSL, run both scripts with the same Python and GUI setup used to launch the app.
+
 ```bash
+python3 test_layout.py
 python3 test_wheel_stats.py
 ```
+
+The layout tests check spacing between labels, dates, and icons. The behavior tests open the overlay with a temporary configuration and database.

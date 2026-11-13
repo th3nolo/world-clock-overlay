@@ -1,8 +1,9 @@
 @echo off
-:: Ensure Pillow is installed
-python -c "import PIL" 2>nul || python -m pip install Pillow --quiet
-:: Ensure pystray is installed
-python -c "import pystray" 2>nul || python -m pip install pystray --quiet
+setlocal
+if not exist "%~dp0.venv\Scripts\pythonw.exe" (
+    echo Set up the Windows virtual environment using README.md.
+    pause
+    exit /b 1
+)
 
-start pythonw "%~dp0clock.py"
-exit
+start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0clock.py"
