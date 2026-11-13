@@ -63,11 +63,11 @@ Double-click to switch layouts. The overlay stays anchored to the nearest screen
 
 ![Double-click to switch layouts](screenshots/layout-toggle.gif)
 
-## Running the application
+## Run
 
 ### Windows
 
-You’ll need CPython 3.11–3.15 with Tkinter and [uv](https://docs.astral.sh/uv/getting-started/installation/). In PowerShell, open the project folder and run the following commands.
+In PowerShell, use [uv](https://docs.astral.sh/uv/getting-started/installation/) and CPython 3.11–3.15 with Tkinter. Replace `3.12` with your installed version.
 
 ```powershell
 uv venv --no-python-downloads --python 3.12 .venv
@@ -75,40 +75,30 @@ uv pip sync --python .venv --require-hashes --only-binary :all: --default-index 
 .\.venv\Scripts\python.exe clock.py
 ```
 
-Use your installed Python version in the first command. The requirements file pins the Windows dependencies and checks their hashes. It includes the time zone data for remote clocks and reminders, plus the packages for the tray icon and Liquid Glass. After setup, double-click `run_clock.bat` to launch the overlay.
+After setup, double-click `run_clock.bat` to launch.
 
 ### WSL
 
-Use a WSL 2 distribution with [WSLg](https://learn.microsoft.com/en-us/windows/wsl/tutorials/gui-apps), Python 3.9 or newer, Tkinter, and system time zone data. The package names for Tkinter and time zone data on Debian and Ubuntu are `python3-tk` and `tzdata`.
+Use [WSL 2 with WSLg](https://learn.microsoft.com/en-us/windows/wsl/tutorials/gui-apps) and Python 3.9 or newer. On Ubuntu or Debian, install `python3-tk` and `tzdata`.
 
 ```bash
 python3 clock.py
 ```
 
-Click the timer or use the right-click menu to pause tracking. On WSL, Liquid Glass uses a static panel.
+Liquid Glass uses a static panel on WSL.
 
 ## Controls
 
-- **Change clocks.** In the setup wizard, type a city or region, then open the list to choose a time zone. To reopen the wizard, right-click and choose **Reset Clocks Setup Wizard**.
-- **Set a reminder.** Right-click and choose **Add Reminder…**. Select a zone, enter the date and time there, and choose how far ahead you want a warning. On Windows, you can get a tray alert and a beep. When the reminder is due, you can dismiss it or snooze it for five minutes.
-- **Hide to tray.** With the tray icon active, right-click and choose **Hide Overlay**. On Windows, you can also hover over the overlay and press H. Single-click the tray icon to take a quick look. Double-click to restore the overlay.
-- **Show Liquid Glass in a recording.** On Windows, Liquid Glass hides the overlay and its menus from screen capture. Hover and press Delete to toggle demo mode, which shows the overlay with a frozen backdrop.
-- **Change the display.** Right-click for 12- or 24-hour time, seconds, opacity, and themes. The app saves these preferences and its position in `~/.world_clock_overlay.json`.
+- Click the timer to pause or resume. Double-click the overlay to switch layouts.
+- Right-click to change clocks, add a reminder, or adjust the display.
+- With the tray icon active, choose **Hide Overlay** from the right-click menu. Click the tray icon to peek or double-click to restore.
+- On Windows, hover over Liquid Glass and press Delete to show it in screen recordings.
 
 ## Tests
 
-On Windows, run the tests in PowerShell after setting up the virtual environment.
-
-```powershell
-.\.venv\Scripts\python.exe test_layout.py
-.\.venv\Scripts\python.exe test_wheel_stats.py
-```
-
-On WSL, run both scripts with the same Python and GUI setup used to launch the app.
+From the project folder, run both scripts. On Windows, use `.\.venv\Scripts\python.exe` in place of `python3`.
 
 ```bash
 python3 test_layout.py
 python3 test_wheel_stats.py
 ```
-
-The layout tests check spacing between labels, dates, and icons. The behavior tests open the overlay with a temporary configuration and database.
