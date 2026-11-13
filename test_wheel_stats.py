@@ -1,7 +1,7 @@
 """Tests for scroll-wheel translucency and monthly stats accounting.
 
 Runs the real app with a temporary configuration and database.
-Use the Windows environment described in README.md.
+Use the platform setup described in README.md.
 """
 import os
 import sys
@@ -65,7 +65,9 @@ def run_tests(app):
     check('no change when pointer not over window', app.settings['opacity'] == 0.3)
 
     # --- Monthly stats: live session must not be counted twice ---
-    month = datetime.now().strftime('%Y-%m')
+    now = datetime.now()
+    month = now.strftime('%Y-%m')
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     conn = sqlite3.connect(clock.DB_FILE)
     conn.execute(
         "INSERT INTO work_sessions (start_time, end_time, duration_seconds) VALUES (?, ?, ?)",
@@ -74,7 +76,7 @@ def run_tests(app):
     conn.commit()
     conn.close()
 
-    app.session_start = datetime.now() - timedelta(seconds=3600)  # live session: 1h
+    app.session_start = now - timedelta(hours=1)
     app.update_work_session()   # 60s autosave writes the live 1h into its DB row
     app.stats_cache = None      # force re-read of the DB
 
@@ -82,16 +84,16 @@ def run_tests(app):
     # Correct: 2h past + 1h live = 3h. The old code returned 4h here
     # (past 2h + saved live row 1h + live 1h again).
     check('monthly hours = 3.0, live session counted once', abs(hours - 3.0) < 0.02)
-    check('unique days = 2 (past day + today)', days == 2)
-    # The live 1h session started today, so it lands in the today total.
-    # The 2h past session on the 1st only counts if today IS the 1st.
-    expected_today = 3.0 if datetime.now().day == 1 else 1.0
-    check(f'today hours = {expected_today}', abs(today_hours - expected_today) < 0.02)
+    expected_days = 1 if now.day == 1 else 2
+    check('unique days count the saved and live sessions', days == expected_days)
+    live_today = min(1.0, (now - day_start).total_seconds() / 3600)
+    expected_today = live_today + (2.0 if now.day == 1 else 0.0)
+    check('today hours include only the live time after midnight',
+          abs(today_hours - expected_today) < 0.02)
 
     # --- Today clipping: overnight session counts only its today portion ---
     # (skipped on the 1st: yesterday belongs to the previous month there)
-    if datetime.now().day != 1:
-        day_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    if now.day != 1:
         conn = sqlite3.connect(clock.DB_FILE)
         conn.execute(
             "INSERT INTO work_sessions (start_time, end_time, duration_seconds) VALUES (?, ?, ?)",
@@ -222,71 +224,78 @@ def run_tests(app):
     check('drag starting on the timer moves, never toggles', not app.paused)
 
     # --- Hide to tray, peek, and tray click timing ---
-    app.hide_overlay()
-    check('hide withdraws the window',
-          app.hidden and app.root.state() == 'withdrawn')
+    if app.is_windows:
+        check('tray is available with the Windows dependencies', clock.HAS_TRAY)
+    if clock.HAS_TRAY:
+        app.hide_overlay()
+        check('hide withdraws the window',
+              app.hidden and app.root.state() == 'withdrawn')
 
-    app.on_tray_activate()
-    app.on_tray_activate()  # second click inside the 350ms window
-    check('tray double-click shows permanently',
-          not app.hidden and not app.peeking and app.root.state() == 'normal')
+        app.on_tray_activate()
+        app.on_tray_activate()  # second click inside the 350ms window
+        check('tray double-click shows permanently',
+              not app.hidden and not app.peeking and app.root.state() == 'normal')
 
-    app.hide_overlay()
-    app._tray_single_click()
-    check('tray single click peeks', not app.hidden and app.peeking)
-    app.is_pointer_over_window = lambda: True
-    app.peek_watch()   # mouse arrives on the overlay
-    check('peek stays while hovered', not app.hidden)
-    app.is_pointer_over_window = lambda: False
-    app.peek_watch()   # mouse leaves -> fade starts
-    check('leaving starts the fade, not an instant hide', not app.hidden)
-    app.fade_out_and_hide(0.5)
-    check('mid-fade the window dims',
-          float(app.root.attributes('-alpha')) < app.settings['opacity'])
-    app.is_pointer_over_window = lambda: True
-    app.fade_out_and_hide(0.7)  # mouse returns mid-fade
-    check('re-entering cancels the fade',
-          not app.hidden
-          and abs(float(app.root.attributes('-alpha')) - app.settings['opacity']) < 0.01)
-    app.is_pointer_over_window = lambda: False
-    app.fade_out_and_hide(1.0)  # jump to the fade's end
-    check('completed fade hides the overlay', app.hidden)
+        app.hide_overlay()
+        app._tray_single_click()
+        check('tray single click peeks', not app.hidden and app.peeking)
+        app.is_pointer_over_window = lambda: True
+        app.peek_watch()   # mouse arrives on the overlay
+        check('peek stays while hovered', not app.hidden)
+        app.is_pointer_over_window = lambda: False
+        app.peek_watch()   # mouse leaves -> fade starts
+        check('leaving starts the fade, not an instant hide', not app.hidden)
+        app.fade_out_and_hide(0.5)
+        check('mid-fade the window dims',
+              float(app.root.attributes('-alpha')) < app.settings['opacity'])
+        app.is_pointer_over_window = lambda: True
+        app.fade_out_and_hide(0.7)  # mouse returns mid-fade
+        check('re-entering cancels the fade',
+              not app.hidden
+              and abs(float(app.root.attributes('-alpha')) - app.settings['opacity']) < 0.01)
+        app.is_pointer_over_window = lambda: False
+        app.fade_out_and_hide(1.0)  # jump to the fade's end
+        check('completed fade hides the overlay', app.hidden)
 
-    app.hide_overlay()
-    app._tray_single_click()
-    app.is_pointer_over_window = lambda: False
-    app.peek_hovered = False
-    app.peek_start -= clock.PEEK_TIMEOUT_SEC + 1  # pretend time passed
-    app.peek_watch()
-    app.fade_out_and_hide(1.0)
-    check('peek times out if the mouse never arrives', app.hidden)
+        app.hide_overlay()
+        app._tray_single_click()
+        app.is_pointer_over_window = lambda: False
+        app.peek_hovered = False
+        app.peek_start -= clock.PEEK_TIMEOUT_SEC + 1  # pretend time passed
+        app.peek_watch()
+        app.fade_out_and_hide(1.0)
+        check('peek times out if the mouse never arrives', app.hidden)
 
-    app.show_overlay()
-    check('show restores the window',
-          not app.hidden and app.root.state() == 'normal')
+        app.show_overlay()
+        check('show restores the window',
+              not app.hidden and app.root.state() == 'normal')
 
-    # --- Tray tooltip mirrors the hours ---
-    if clock.HAS_TRAY and hasattr(app, 'tray_icon'):
-        app.tray_tooltip_counter = 9
-        app.force_redraw()
-        check('tray tooltip carries the hours',
-              'Today' in app.tray_icon.title and 'hrs' in app.tray_icon.title)
+        # --- Tray tooltip mirrors the hours ---
+        if hasattr(app, 'tray_icon'):
+            app.tray_tooltip_counter = 9
+            app.force_redraw()
+            check('tray tooltip carries the hours',
+                  'Today' in app.tray_icon.title and 'hrs' in app.tray_icon.title)
 
-    # --- Tapping H over the overlay hides it instantly ---
-    app.is_pointer_over_window = lambda: True
-    app.h_was_down = False
-    app.is_h_down = lambda: True
-    app.poll_pause_hotkey()
-    check('H tap hides instantly', app.hidden)
-    app.poll_pause_hotkey()
-    app.is_h_down = lambda: False
-    app.poll_pause_hotkey()
+        # --- Tapping H over the overlay hides it instantly ---
+        app.is_pointer_over_window = lambda: True
+        app.h_was_down = False
+        app.is_h_down = lambda: True
+        app.poll_pause_hotkey()
+        check('H tap hides instantly', app.hidden)
+        app.poll_pause_hotkey()
+        app.is_h_down = lambda: False
+        app.poll_pause_hotkey()
 
-    app.is_h_down = lambda: True   # H must be inert while hidden
-    app.poll_pause_hotkey()
-    check('H is ignored while hidden', app.hidden)
-    app.is_h_down = lambda: False
-    app.poll_pause_hotkey()
+        app.is_h_down = lambda: True   # H must be inert while hidden
+        app.poll_pause_hotkey()
+        check('H is ignored while hidden', app.hidden)
+        app.is_h_down = lambda: False
+        app.poll_pause_hotkey()
+    else:
+        app.hide_overlay()
+        check('overlay stays visible without a tray icon',
+              not app.hidden and app.root.state() == 'normal')
     app.show_overlay()
     check('overlay shows at full configured opacity',
           abs(float(app.root.attributes('-alpha')) - app.settings['opacity']) < 0.01)
@@ -359,7 +368,7 @@ def run_tests(app):
     check('due reminder fires an alarm card',
           r_due['fired'] and app._last_alarm is not None
           and app._last_alarm.winfo_exists())
-    check('tray tooltip gains a next-reminder line',
+    check('next reminder text includes the reminder label',
           app.next_reminder_text is not None
           and 'TZ probe' in app.next_reminder_text)
     app._last_alarm.dismiss()
@@ -406,7 +415,10 @@ def run_tests(app):
     app.change_theme('glass')
     check('glass theme applies without error',
           app.settings['theme'] == 'glass')
-    check('glass live pipeline engaged', app.glass_live)
+    if app.is_windows:
+        check('glass live pipeline engaged', app.glass_live)
+    else:
+        check('glass uses the static panel outside Windows', not app.glass_live)
     if app.glass_live:
         frame = app.render_glass(force=True)
         check('glass renders a live backdrop frame', frame is not None)
@@ -490,8 +502,12 @@ def run_tests(app):
               window_affinity(app.root) == 0x11)
         app.is_pointer_over_window = lambda: False
     app.change_opacity(0.5)
-    check('glass pins window alpha to 1.0 (wheel drives the tint)',
-          abs(float(app.root.attributes('-alpha')) - 1.0) < 0.001)
+    if app.is_windows:
+        check('glass pins window alpha to 1.0 (wheel drives the tint)',
+              abs(float(app.root.attributes('-alpha')) - 1.0) < 0.001)
+    else:
+        check('static glass follows the selected opacity',
+              abs(float(app.root.attributes('-alpha')) - 0.5) < 0.001)
     app.change_theme('raycast')
     check('raycast theme applies without error',
           app.settings['theme'] == 'raycast')
@@ -499,10 +515,11 @@ def run_tests(app):
           abs(float(app.root.attributes('-alpha')) - 0.5) < 0.001)
     app.change_opacity(0.85)
     app.change_theme('dark')
-    app.show_context_menu(FakeClick())
-    check('context menu is capturable on non-glass themes',
-          window_affinity(app.context_popup.win) == 0)
-    app.context_popup.close_all()
+    if app.is_windows:
+        app.show_context_menu(FakeClick())
+        check('context menu is capturable on non-glass themes',
+              window_affinity(app.context_popup.win) == 0)
+        app.context_popup.close_all()
 
     # --- Text shadow: draw_text paints a shadow copy behind the text ---
     before = len(app.canvas.find_all())

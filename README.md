@@ -33,7 +33,7 @@ World Clock Overlay is an always-on-top desktop clock for remote work across tim
 
 ## Demos
 
-### Pause with the space bar
+### Pause with the space bar on Windows
 
 Hover over the overlay and hold Space for half a second. Hold it again to resume.
 
@@ -47,7 +47,7 @@ Click the work timer to pause or resume.
 
 ### Scroll-wheel opacity
 
-Scroll over the overlay to adjust its opacity. In Liquid Glass, scrolling changes the tint.
+Scroll over the overlay to adjust its opacity. On Windows, scrolling in Liquid Glass changes the tint.
 
 ![Scroll wheel adjusts opacity](screenshots/wheel-translucency.gif)
 
@@ -79,29 +79,36 @@ Use your installed Python version in the first command. The requirements file pi
 
 ### WSL
 
-Use a distribution with Linux GUI support, Python 3.9 or newer, Tkinter, and system time zone data. The package names for Tkinter and time zone data on Debian and Ubuntu are `python3-tk` and `tzdata`.
+Use a WSL 2 distribution with [WSLg](https://learn.microsoft.com/en-us/windows/wsl/tutorials/gui-apps), Python 3.9 or newer, Tkinter, and system time zone data. The package names for Tkinter and time zone data on Debian and Ubuntu are `python3-tk` and `tzdata`.
 
 ```bash
 python3 clock.py
 ```
 
-The repository also contains an older Electron prototype. Its Electron 31 runtime is end-of-support. The instructions above run the Python app.
+Click the timer or use the right-click menu to pause tracking. On WSL, Liquid Glass uses a static panel.
 
 ## Controls
 
 - **Change clocks.** In the setup wizard, type a city or region, then open the list to choose a time zone. To reopen the wizard, right-click and choose **Reset Clocks Setup Wizard**.
 - **Set a reminder.** Right-click and choose **Add Reminder…**. Select a zone, enter the date and time there, and choose how far ahead you want a warning. On Windows, you can get a tray alert and a beep. When the reminder is due, you can dismiss it or snooze it for five minutes.
-- **Hide to tray.** With the tray icon active, hover over the overlay and press H. Single-click the tray icon to take a quick look. Double-click to restore the overlay.
+- **Hide to tray.** With the tray icon active, right-click and choose **Hide Overlay**. On Windows, you can also hover over the overlay and press H. Single-click the tray icon to take a quick look. Double-click to restore the overlay.
 - **Show Liquid Glass in a recording.** On Windows, Liquid Glass hides the overlay and its menus from screen capture. Hover and press Delete to toggle demo mode, which shows the overlay with a frozen backdrop.
 - **Change the display.** Right-click for 12- or 24-hour time, seconds, opacity, and themes. The app saves these preferences and its position in `~/.world_clock_overlay.json`.
 
 ## Tests
 
-Run the tests in PowerShell after setting up the Windows virtual environment.
+On Windows, run the tests in PowerShell after setting up the virtual environment.
 
 ```powershell
 .\.venv\Scripts\python.exe test_layout.py
 .\.venv\Scripts\python.exe test_wheel_stats.py
+```
+
+On WSL, run both scripts with the same Python and GUI setup used to launch the app.
+
+```bash
+python3 test_layout.py
+python3 test_wheel_stats.py
 ```
 
 The layout tests check spacing between labels, dates, and icons. The behavior tests open the overlay with a temporary configuration and database.
