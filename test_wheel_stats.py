@@ -1,10 +1,7 @@
 """Tests for scroll-wheel translucency and monthly stats accounting.
 
-Runs the real app against an isolated profile (USERPROFILE override), so the
-user's config and work-tracker database are never touched. Run with a Python
-that has Tkinter (e.g. Windows Python from WSL):
-
-    python.exe '\\\\wsl.localhost\\Ubuntu\\home\\th3nolo\\world-clock-overlay\\test_wheel_stats.py'
+Runs the real app with a temporary configuration and database.
+Use the Windows environment described in README.md.
 """
 import os
 import sys
@@ -15,14 +12,14 @@ import sqlite3
 import tempfile
 from datetime import datetime, timedelta
 
-# Isolate config/DB before importing clock.py (it resolves paths at import)
-PROFILE = os.path.join(tempfile.gettempdir(), 'wco_test_profile')
-shutil.rmtree(PROFILE, ignore_errors=True)
-os.makedirs(PROFILE)
-os.environ['USERPROFILE'] = PROFILE
-os.environ['HOME'] = PROFILE
+import tkinter as tk
+import clock
 
-with open(os.path.join(PROFILE, '.world_clock_overlay.json'), 'w') as f:
+PROFILE = tempfile.mkdtemp(prefix='wco_test_profile_')
+clock.CONFIG_FILE = os.path.join(PROFILE, '.world_clock_overlay.json')
+clock.DB_FILE = os.path.join(PROFILE, '.world_clock_work_tracker.db')
+
+with open(clock.CONFIG_FILE, 'w') as f:
     json.dump({
         'layout': 'horizontal', 'format': '12h', 'show_seconds': True,
         'opacity': 0.85, 'theme': 'dark', 'x': 100, 'y': 100,
@@ -31,10 +28,6 @@ with open(os.path.join(PROFILE, '.world_clock_overlay.json'), 'w') as f:
             {'tz': 'Europe/Madrid', 'name': 'Spain', 'flag_code': 'spain'}
         ]
     }, f)
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tkinter as tk
-import clock
 
 results = []
 
@@ -380,18 +373,25 @@ def run_tests(app):
 
     app.show_reminder_dialog()
     rd = app._rd
+    check('new reminders start in local time', rd['tz'].get() == 'Local')
     rd['label'].delete(0, 'end')
     rd['label'].insert(0, 'Dialog probe')
-    future = datetime.now() + timedelta(hours=2)
+    future = datetime.now(clock.ZoneInfo('Asia/Kathmandu')) + timedelta(hours=2)
     rd['date'].delete(0, 'end')
     rd['date'].insert(0, future.strftime('%Y-%m-%d'))
     rd['time'].delete(0, 'end')
     rd['time'].insert(0, future.strftime('%H:%M'))
     count_before = len(app.settings['reminders'])
+    rd['tz'].set('Kathmandu')
     rd['save']()
-    check('dialog adds a Pacific-pinned reminder',
+    check('partial time zone does not save a reminder',
+          rd['win'].winfo_exists()
+          and len(app.settings['reminders']) == count_before)
+    rd['tz'].set('Asia/Kathmandu')
+    rd['save']()
+    check('dialog saves a reminder in a zone outside the old presets',
           len(app.settings['reminders']) == count_before + 1
-          and app.settings['reminders'][-1]['tz'] == 'America/Los_Angeles')
+          and app.settings['reminders'][-1]['tz'] == 'Asia/Kathmandu')
     app.settings['reminders'] = []
     app.save_settings()
 

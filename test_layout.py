@@ -1,7 +1,7 @@
 import unittest
 
 # Simulated coordinate metrics from clock.py (panel layout)
-# Labels are short uppercase city names; worst cases from COMMON_ZONES
+# Representative short city names in the overlay
 SHORT_LABELS = [
     'LOCAL',
     'MADRID',
@@ -55,7 +55,7 @@ class TestClockLayout(unittest.TestCase):
                 )
 
             # Meta row: offset + gap + date must fit inside the cell
-            offset_w = self.estimate_text_width("+10.5h", font_size=8, is_bold=True)
+            offset_w = self.estimate_text_width("+10:45", font_size=8, is_bold=True)
             date_w = self.estimate_text_width("Wed, Sep 30", font_size=8, is_bold=False)
             meta_right = x1 + PAD + offset_w + 6 + date_w
             self.assertLess(
